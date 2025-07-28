@@ -10,6 +10,8 @@
 #pragma push_macro("PRAGMA")
 #define PRAGMA(x) _Pragma(#x)
 
+/** slice */
+/* {{{ */
 #define slice(typevar) struct { \
 	typeof(typevar) *ptr;   \
 	uint32_t length;        \
@@ -22,13 +24,23 @@
 #define UNSLICE(sl) (sl).length, (sl).ptr
 
 typedef slice(void) slice_t;
+/* }}} */
 
+/* interface */
 typedef struct alloc_t alloc_t;
 struct alloc_t {
 	slice_t (*alloc)   (alloc_t *ap, size_t elem_size, size_t length);
 	void    (*dealloc) (alloc_t *ap, size_t elem_size, slice_t slice);
 };
 
+#define alloc_create(al, typevar) allocate(al, typevar, 1).ptr
+#define alloc_destroy(al, ptr) deallocate(al, ((slice(typeof(*ptr))){ (ptr), 1 }))
+
+#define alloc_create_bytes(al, size) allocate(al, void, size).ptr
+#define alloc_destroy_bytes(al, ptr, size) deallocate(al, (slice_t){ (ptr), (size) })
+
+/* UFCS */
+/* {{{ */
 #define allocate(al, typevar, len) ({                             \
 		slice_t __tmp__ = ((alloc_t*)&(al))->alloc(       \
 			(alloc_t*)&(al), sizeof(typevar), (len)); \
@@ -37,13 +49,6 @@ struct alloc_t {
 		(alloc_t*)&(al), sizeof(*(sl).ptr),    \
 		(slice_t) EXPAND_SLICE(sl)             \
 		)
-
-#define alloc_create(al, typevar) allocate(al, typevar, 1).ptr
-#define alloc_destroy(al, ptr) deallocate(al, ((slice(typeof(*ptr))){ (ptr), 1 }))
-
-#define alloc_create_bytes(al, size) allocate(al, void, size).ptr
-#define alloc_destroy_bytes(al, ptr, size) deallocate(al, (slice_t){ (ptr), (size) })
-
 #define alloc_dup(al, src) ({                                          \
 		slice_t __tmp__ = alloc_dup_int(                       \
 				(alloc_t*)&(al),                       \
@@ -51,6 +56,7 @@ struct alloc_t {
 				sizeof(*(src).ptr)                     \
 				);                                     \
 		cast_slice(*src.ptr, __tmp__);                        })
+/* }}} */
 
 typedef struct {
 	const alloc_t alloc;
@@ -65,9 +71,6 @@ typedef struct {
 	uint8_t *page; /*top of each page has the pointer to the previous*/
 } alloc_arena_t;
 
-#define ALLOC_ARENA_CLEANUP alloc_arena_t __attribute__((cleanup(alloc_arena_destroy)))
-#define ARENA_PG_SIZE 4096ul
-
 typedef struct {
 	alloc_t alloc;
 	size_t min_length;
@@ -77,25 +80,20 @@ typedef struct {
 	} *list;
 } alloc_freelist_t;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-slice_t alloc_dup_int (alloc_t *this, slice_t sl,size_t elem_size);
-
-extern const alloc_t LIBC;
-
-alloc_buffer_t alloc_buffer_create (size_t length, uint8_t buffer[length]);
-
-alloc_arena_t alloc_arena_create (const alloc_t *alloc, size_t page_size);
-void alloc_arena_destroy (const alloc_arena_t* this);
-
-alloc_freelist_t alloc_freelist_create (size_t length, uint8_t buffer[length],
-		size_t min_size);
-
-#ifdef __cplusplus
-}
-#endif
+/* helper */
+extern slice_t         alloc_dup_int (alloc_t *this, slice_t sl,size_t elem_size);
+/* LIBC allocator*/
+extern const alloc_t   LIBC;
+/* buffer allocator */
+extern alloc_buffer_t  alloc_buffer_create (size_t length, uint8_t buffer[length]);
+/* arena allocator */
+#define ARENA_PG_SIZE  4096ul
+#define ALLOC_ARENA_CLEANUP \
+	alloc_arena_t __attribute__((cleanup(alloc_arena_destroy)))
+extern alloc_arena_t   alloc_arena_create (const alloc_t *alloc, size_t page_size);
+extern void            alloc_arena_destroy (const alloc_arena_t* this);
+/* freelist allocator */
+extern alloc_freelist_t alloc_freelist_create (size_t length, uint8_t buffer[length], size_t min_size);
 
 #ifdef ALLOC_IMPLEMENT
 slice_t __attribute__((unused))
