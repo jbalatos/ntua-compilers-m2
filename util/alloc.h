@@ -19,7 +19,7 @@
 #define set_slice(dst, src) ({                                             \
 		__auto_type __tmp__ = (src);                               \
 		(dst) = (typeof(dst)){ (__tmp__).ptr, (__tmp__).length }; })
-#define untie_slice(sl) (sl).length, (sl).ptr
+#define UNSLICE(sl) (sl).length, (sl).ptr
 
 typedef slice(void) slice_t;
 

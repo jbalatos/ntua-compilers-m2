@@ -14,24 +14,13 @@ int main (int argc, char *argv[argc])
 {
 
 	LEX_READER_CLEANUP lexer = lex_reader_create(&LIBC, fname);
-	lex_token_t tok;
+	lex_token_t tok = lex_next_token(&lexer, NULL);
 
-	while ((tok = lex_next_token(&lexer)).type != DANA_EOF) {
-		printf("%3u: %10s\t\t", tok.pos.pos, lex_token_type(tok));
-		switch (tok.type) {
-		case DANA_NUMBER: printf("%d\n", tok.pl_num);
-				  break;
-		case DANA_NAME: printf("%.*s\n", untie_slice(lex_string_at(
-								  &lexer, tok.pos, tok.pl_len
-								  )));
-				  break;
-		case DANA_CHAR:
-		case DANA_STRING: printf("\"%.*s\"\n", untie_slice(lex_string_at(
-								  &lexer, tok.pos, tok.pl_len
-								  )));
-				  break;
-		default: printf("\n");
-		}
+	for (; tok.type != DANA_EOF; tok = lex_next_token(&lexer, &tok)) {
+		printf("%3u: %10s\t\t%20.*s\t\t(%u @ %p)\n",
+				tok.pos, lex_token_type(tok),
+				UNSLICE(lex_token_val(&lexer, tok)),
+				UNSLICE(lex_token_val(&lexer, tok)));
 	}
 
 	return 0;
