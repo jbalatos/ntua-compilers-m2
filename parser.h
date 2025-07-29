@@ -6,7 +6,7 @@
 
 #ifndef _assert
 	#define _assert(cond, fmt, ...) \
-		assert(cond && "ASSERT\t%s:%d\n", __FILE__, __LINE__)
+		assert(cond && "ASSERT\t%s:%d\t" fmt, __FILE__, __LINE__)
 #endif
 
 POS_DECL(ast_node_pos, 32);
@@ -22,11 +22,10 @@ typedef struct {
 		DANA_TYPES
 		DANA_KEYWORDS
 	} type : 8;
-	token_pos token;
 	union {
 		struct { ast_node_pos lhs, rhs; } op_data;
-		struct { uint32_t value; ast_node_pos src; } pl_data;
-		struct { ast_node_pos src; } name_data;
+		struct { uint32_t value; } pl_data;
+		struct { token_pos tok; } name_data;
 	};
 } ast_node_t;
 #undef OP
@@ -164,15 +163,14 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 	/* initial token */
 	switch (tok.type) {
 	case DANA_NAME:
-		node = (ast_node_t){ .type = AST_NAME, .token = pos };
+		node = (ast_node_t){ .type = AST_NAME, .name_data.tok = pos };
 		lhs = AST_APPEND(this, node);
 		break;
 	case DANA_NUMBER: {
 		slice_char_t sl = parser_token_val(this, tok);
 		LEX_TEMP_SLICE(sl);
 		node = (ast_node_t){
-			.type = AST_NUMBER, .token = pos,
-			.pl_data.value = atoi(sl.ptr),
+			.type = AST_NUMBER, .pl_data.value = atoi(sl.ptr),
 		};
 		lhs = AST_APPEND(this, node);
 		break;
@@ -188,8 +186,10 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 		break;
 	default:
 		if (bp_is_prefix(tok, &bp)) {
-			node = (ast_node_t){ .type = tok.type, .token = pos };
-			node.op_data.lhs = _parse_expr(this, bp.rhs);
+			node = (ast_node_t){
+				.type = tok.type,
+				.op_data.lhs = _parse_expr(this, bp.rhs),
+			};
 			lhs = AST_APPEND(this, node);
 			break;
 		}
@@ -204,9 +204,12 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 				lex_ttype_str(tok),
 				UNSLICE(parser_token_val(this, tok)));
 		switch (tok.type) {
+		CLOSING_OP:
+			node = (ast_node_t){ .type = tok.type };
+			break;
 		default:
 			if (bp_is_infix(tok, &bp) || bp_is_postfix(tok, &bp)) {
-				node = (ast_node_t){ .type = tok.type, .token = pos };
+				node = (ast_node_t){ .type = tok.type };
 				break;
 			}
 			_assert(false, "Peeked token not recognised: [%s] |%.*s|",

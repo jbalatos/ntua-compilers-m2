@@ -34,7 +34,7 @@ ast_node_print (const parser_t *this, ast_node_pos pos)
 		break;
 	case AST_NAME:
 		printf("%.*s", UNSLICE(parser_token_val(this,
-						parser_get_token(this, node.token))));
+						parser_get_token(this, node.name_data.tok))));
 		break;
 	case AST_OPEN_PAREN:
 		ast_node_print(this, node.op_data.lhs); printf("(");

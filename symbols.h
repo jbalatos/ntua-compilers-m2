@@ -80,7 +80,10 @@
 	IN(LEQ,			5,	LEFT_ASSOC)			\
 	IN(GT,			5,	LEFT_ASSOC)			\
 	IN(GEQ,			5,	LEFT_ASSOC)			\
-	PRE(OPEN_PAREN,	1)				/* groupings */ \
-	POST(OPEN_PAREN,	1)			/* groupings */ \
+	PRE(OPEN_PAREN,		1)			/* groupings */ \
+	POST(OPEN_PAREN,	9)			/* groupings */ \
 	POST(OPEN_BRACKET,	9)					\
+
+#define CLOSING_OP 	case DANA_CLOSE_PAREN: \
+			case DANA_CLOSE_BRACKET
 
