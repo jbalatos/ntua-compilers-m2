@@ -56,6 +56,8 @@
 	KW(TRUE,	"true")				\
 	KW(VAR,		"var")				\
 
+#define DANA_KW case DANA_KW_AND ... DANA_KW_VAR
+
 #define LEFT_ASSOC 0
 #define RIGHT_ASSOC 1
 
@@ -82,17 +84,3 @@
 	POST(OPEN_PAREN,	1)			/* groupings */ \
 	POST(OPEN_BRACKET,	9)					\
 
-#define DANA_BIN_OPS         DANA_PLUS   ... DANA_OR: \
-			case DANA_KW_AND ... DANA_KW_OR
-#define AST_BIN_OPS          AST_PLUS    ... AST_OR: \
-			case AST_KW_AND  ... AST_KW_OR
-
-#define DANA_PREF_OPS        DANA_PLUS: case DANA_MINUS: \
-			case DANA_NOT:  case DANA_KW_NOT
-#define AST_PREF_OPS         AST_NOT:   case AST_KW_NOT
-
-#define DANA_POST_OPS        DANA_OPEN_BRACKET: case DANA_OPEN_PAREN
-#define AST_POST_OPS         AST_OPEN_BRACKET:  case DANA_OPEN_PAREN
-
-#define DANA_OPS DANA_PLUS ... DANA_CLOSE_BRACKET: case DANA_KW_AND ... DANA_KW_NOT
-#define AST_OPS  AST_PLUS  ... AST_CLOSE_BRACKET:  case AST_KW_AND  ... AST_KW_NOT

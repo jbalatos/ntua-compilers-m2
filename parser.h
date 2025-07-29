@@ -21,7 +21,7 @@ typedef struct {
 		AST_ERROR = 0,
 		DANA_TYPES
 		DANA_KEYWORDS
-	} tag : 8;
+	} type : 8;
 	token_pos token;
 	union {
 		struct { ast_node_pos lhs, rhs; } op_data;
@@ -41,8 +41,6 @@ typedef struct {
 	ast_node_t *ast;
 } parser_t;
 
-typedef struct { uint8_t lhs, rhs; } parser_bp_t;
-
 #define PARSER_CLEANUP parser_t __attribute__((cleanup(parser_destroy)))
 extern parser_t      parser_create (const alloc_t *alloc, const char *fname);
 extern void          parser_destroy (const parser_t *this);
@@ -50,24 +48,28 @@ extern void          parser_destroy (const parser_t *this);
 extern lex_token_t   parser_get_token (const parser_t *this, token_pos pos);
 extern ast_node_t    parser_get_node (const parser_t *this, ast_node_pos pos);
 extern slice_char_t  parser_token_val (const parser_t *this, lex_token_t tok);
-static token_pos     parser_next_token (parser_t *this);
-static token_pos     parser_peek_token (parser_t *this);
-/* AST */
-extern const char*   ast_tag_str (ast_node_t node);
-extern void          ast_node_print (const parser_t *this, ast_node_pos pos);
+extern token_pos     _parser_next_token (parser_t *this);
+extern token_pos     _parser_peek_token (parser_t *this);
 /* pratt parser */
-static ast_node_pos  _parse (parser_t *this, uint8_t min_bp);
+extern ast_node_pos  _parse_expr (parser_t *this, uint8_t min_bp);
 extern ast_node_pos  parser_parse (parser_t *this);
 
 #define PEEK_TOKEN(prs, tok, pos) ({                     \
-		(pos) = parser_peek_token((prs));        \
+		(pos) = _parser_peek_token((prs));        \
 		(tok) = parser_get_token((prs), (pos)); })
 #define NEXT_TOKEN(prs, tok, pos) ({                     \
-		(pos) = parser_next_token((prs));        \
+		(pos) = _parser_next_token((prs));        \
 		(tok) = parser_get_token((prs), (pos)); })
 #define AST_APPEND(prs, node) ({                            \
 		arr_push((prs)->ast, (node));               \
 		(ast_node_pos){ arr_ulen((prs)->ast) - 1}; })
+
+#ifdef PARSER_IMPLEMENT
+	#define BP_IMPLEMENT
+	#define AST_IMPLEMENT
+#endif
+#include "bind_power.h"
+#include "ast.h"
 
 #ifdef PARSER_IMPLEMENT
 /** parser destructor */
@@ -116,8 +118,8 @@ parser_token_val (const parser_t *this, lex_token_t tok)
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsequence-point"
-static token_pos
-parser_next_token (parser_t *this)
+token_pos
+_parser_next_token (parser_t *this)
 {
 	lex_token_t tok = lex_next_token(&this->lexer, this->last);
 	if (arr_ulen(this->tokens) == 1 || POS_CMP(arr_back(this->tokens).pos, tok.pos))
@@ -127,8 +129,8 @@ parser_next_token (parser_t *this)
 }
 #pragma GCC diagnostic pop
 
-static token_pos
-parser_peek_token (parser_t *this)
+token_pos
+_parser_peek_token (parser_t *this)
 {
 	if (arr_ulen(this->tokens) == 1 || !POS_CMP(arr_back(this->tokens).pos, this->last->pos))
 		arr_push(this->tokens, lex_next_token(&this->lexer, this->last));
@@ -138,99 +140,12 @@ parser_peek_token (parser_t *this)
 
 /** binding power */
 /* {{{ */
-#define PRE(e, bp)
-#define IN(e, bp, ass) [AST_ ## e] = { ((bp) << 1) + (ass), ((bp) << 1) + 1 - (ass) },
-#define POST(e, bp)
-static parser_bp_t infix_table[] = {
-	DANA_OPERATORS
-};
-#undef PRE
-#undef IN
-#undef POST
-
-#define PRE(e, bp) [AST_ ## e] = { 0, (bp) << 1 },
-#define IN(e, bp, ass)
-#define POST(e, bp)
-static parser_bp_t prefix_table[] = {
-	DANA_OPERATORS
-};
-#undef PRE
-#undef IN
-#undef POST
-
-#define PRE(e, bp)
-#define IN(e, bp, ass)
-#define POST(e, bp) [AST_ ## e] = { (bp) << 1, 0 },
-static parser_bp_t postfix_table[] = {
-	DANA_OPERATORS
-};
-#undef PRE
-#undef IN
-#undef POST
-/* }}} */
-
-/** AST */
-/* {{{ */
-#define OP(e, s) [AST_    ## e] = s,
-#define TK(e, s)
-#define LIT(e)   [AST_    ## e] = #e,
-#define KW(e, s) [AST_KW_ ## e] = s,
-static const char* tag_table[] = {
-	[AST_ERROR] = "error",
-	DANA_TYPES
-	DANA_KEYWORDS
-};
-#undef OP
-#undef TK
-#undef LIT
-#undef KW
-
-inline const char*
-ast_tag_str (ast_node_t node)
-{ return tag_table[node.tag]; }
-
-void
-ast_node_print (const parser_t *this, ast_node_pos pos)
-{
-	ast_node_t node = parser_get_node(this, pos);
-
-	switch (node.tag) {
-	case AST_NUMBER:
-		printf("%d", node.pl_data.value);
-		break;
-	case AST_NAME:
-		printf("%.*s", UNSLICE(parser_token_val(this,
-						parser_get_token(this, node.token))));
-		break;
-	case AST_OPEN_PAREN:
-		ast_node_print(this, node.op_data.lhs); printf("(");
-		ast_node_print(this, node.op_data.rhs); printf(")");
-		break;
-	case AST_OPEN_BRACKET:
-		ast_node_print(this, node.op_data.lhs); printf("[");
-		ast_node_print(this, node.op_data.rhs); printf("]");
-		break;
-	case AST_PREF_OPS:
-	case AST_BIN_OPS:
-		printf("(%s ", ast_tag_str(node));
-		ast_node_print(this, node.op_data.lhs);
-		if (node.op_data.rhs.pos) {
-			printf(" "); ast_node_print(this, node.op_data.rhs);
-		}
-		printf(")");
-		break;
-	default:
-		printf("(%s)", ast_tag_str(node));
-		break;
-	}
-}
-
 /* }}} */
 
 /** pratt parser */
 /* {{{ */
-static ast_node_pos
-_parse (parser_t *this, uint8_t min_bp)
+ast_node_pos
+_parse_expr (parser_t *this, uint8_t min_bp)
 {
 	static uint16_t parse_level = 0;
 
@@ -249,21 +164,21 @@ _parse (parser_t *this, uint8_t min_bp)
 	/* initial token */
 	switch (tok.type) {
 	case DANA_NAME:
-		node = (ast_node_t){ .tag = AST_NAME, .token = pos };
+		node = (ast_node_t){ .type = AST_NAME, .token = pos };
 		lhs = AST_APPEND(this, node);
 		break;
 	case DANA_NUMBER: {
 		slice_char_t sl = parser_token_val(this, tok);
 		LEX_TEMP_SLICE(sl);
 		node = (ast_node_t){
-			.tag = AST_NUMBER, .token = pos,
+			.type = AST_NUMBER, .token = pos,
 			.pl_data.value = atoi(sl.ptr),
 		};
 		lhs = AST_APPEND(this, node);
 		break;
 	}
 	case DANA_OPEN_PAREN:
-		lhs = _parse(this, 0);
+		lhs = _parse_expr(this, 0);
 		NEXT_TOKEN(this, tok, pos);
 		_assert(tok.type == DANA_CLOSE_PAREN,
 				"No closing paren found: found [%s] |%.*s|",
@@ -271,13 +186,13 @@ _parse (parser_t *this, uint8_t min_bp)
 				UNSLICE(parser_token_val(this, tok)));
 		node = parser_get_node(this, lhs);
 		break;
-	case DANA_PREF_OPS:
-		node = (ast_node_t){ .tag = tok.type, .token = pos };
-		bp = prefix_table[node.tag];
-		node.op_data.lhs = _parse(this, bp.rhs);
-		lhs = AST_APPEND(this, node);
-		break;
 	default:
+		if (bp_is_prefix(tok, &bp)) {
+			node = (ast_node_t){ .type = tok.type, .token = pos };
+			node.op_data.lhs = _parse_expr(this, bp.rhs);
+			lhs = AST_APPEND(this, node);
+			break;
+		}
 		_assert(false, "First token not recognised: [%s] |%.*s|",
 				lex_ttype_str(tok),
 				UNSLICE(parser_token_val(this, tok)));
@@ -289,23 +204,23 @@ _parse (parser_t *this, uint8_t min_bp)
 				lex_ttype_str(tok),
 				UNSLICE(parser_token_val(this, tok)));
 		switch (tok.type) {
-		case DANA_OPS:
-			node = (ast_node_t){ .tag = tok.type, .token = pos };
-			break;
 		default:
+			if (bp_is_infix(tok, &bp) || bp_is_postfix(tok, &bp)) {
+				node = (ast_node_t){ .type = tok.type, .token = pos };
+				break;
+			}
 			_assert(false, "Peeked token not recognised: [%s] |%.*s|",
 					lex_ttype_str(tok),
 					UNSLICE(parser_token_val(this, tok)));
 		}
 
-		/* postfix */
-		if ((bp = postfix_table[node.tag]).lhs) {
+		if (bp_is_postfix(node, &bp)) {
 			if (bp.lhs < min_bp) break;
-			parser_next_token(this);
+			_parser_next_token(this);
 			node.op_data.lhs = lhs;
 			switch (tok.type) {
 			case DANA_OPEN_BRACKET:
-				node.op_data.rhs = _parse(this, 0);
+				node.op_data.rhs = _parse_expr(this, 0);
 				NEXT_TOKEN(this, tok, pos);
 				_assert(tok.type == DANA_CLOSE_BRACKET,
 						"No closing bracket found: found [%s] |%.*s|",
@@ -313,7 +228,7 @@ _parse (parser_t *this, uint8_t min_bp)
 						UNSLICE(parser_token_val(this, tok)));
 				break;
 			case DANA_OPEN_PAREN:
-				node.op_data.rhs = _parse(this, 0);
+				node.op_data.rhs = _parse_expr(this, 0);
 				NEXT_TOKEN(this, tok, pos);
 				_assert(tok.type == DANA_CLOSE_PAREN,
 						"No closing paren found: found [%s] |%.*s|",
@@ -326,12 +241,11 @@ _parse (parser_t *this, uint8_t min_bp)
 			continue;
 		}
 
-		/* infix */
-		if ((bp = infix_table[node.tag]).lhs) {
+		if (bp_is_infix(node, &bp)) {
 			if (bp.lhs < min_bp) break;
-			parser_next_token(this);
+			_parser_next_token(this);
 			node.op_data.lhs = lhs;
-			node.op_data.rhs = _parse(this, bp.rhs);
+			node.op_data.rhs = _parse_expr(this, bp.rhs);
 			lhs = AST_APPEND(this, node);
 			continue;
 		}
@@ -342,6 +256,6 @@ _parse (parser_t *this, uint8_t min_bp)
 	return lhs;
 }
 
-ast_node_pos parser_parse (parser_t *this) { return _parse(this, 0); }
+ast_node_pos parser_parse (parser_t *this) { return _parse_expr(this, 0); }
 /* }}} */
 #endif // PARSER_IMPLEMENT
