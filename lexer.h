@@ -16,20 +16,20 @@ typedef struct {
 	slice_char_t buffer;
 	const alloc_t *alloc;
 	const char *fname;
-} lex_reader_t;
+} lexer_t;
 
-typedef struct { uint32_t pos: 24; } lex_buf_pos;
+POS_DECL(lex_buf_pos, 24);
 
-#define OP(e, s, bp, ass) DANA_    ## e,
-#define TK(e, s)          DANA_    ## e,
-#define LIT(e)            DANA_    ## e,
-#define KW(e, s)          DANA_KW_ ## e,
+#define OP(e, s) DANA_    ## e,
+#define TK(e, s) DANA_    ## e,
+#define LIT(e)   DANA_    ## e,
+#define KW(e, s) DANA_KW_ ## e,
 typedef struct {
 	enum lex_ttype {
 		DANA_ERROR = 0,
-		DANA_COMMENT,
 		DANA_TYPES
 		DANA_KEYWORDS
+		DANA_COMMENT
 	} type : 8;
 	lex_buf_pos pos;
 } lex_token_t;
@@ -38,47 +38,46 @@ typedef struct {
 #undef LIT
 #undef KW
 
-/* lex_reader_t init */
-#define LEX_READER_CLEANUP lex_reader_t \
-	__attribute__((cleanup(lex_reader_destroy)))
-extern lex_reader_t   lex_reader_create (const alloc_t *alloc, const char *fname);
-extern void           lex_reader_destroy (const lex_reader_t *this);
-/* buf_pos operations */
-static lex_buf_pos _pos_adv (lex_buf_pos pos, uint32_t offset);
-static uint32_t    _pos_diff (lex_buf_pos a, lex_buf_pos b);
-/* lex_reader_t methods */
-static bool           lex_eof (const lex_reader_t *this, lex_buf_pos pos);
-static char           lex_read_char (const lex_reader_t *this, lex_buf_pos pos);
-static slice_char_t   lex_read_str (const lex_reader_t *this, lex_buf_pos pos, uint32_t length);
-static bool           lex_matches (const lex_reader_t *this, lex_buf_pos pos, const char *str);
+/* lexer_t init */
+#define LEXER_CLEANUP lexer_t \
+	__attribute__((cleanup(lexer_destroy)))
+extern lexer_t        lexer_create (const alloc_t *alloc, const char *fname);
+extern void           lexer_destroy (const lexer_t *this);
+/* lexer_t methods */
+static bool           lex_eof (const lexer_t *this, lex_buf_pos pos);
+static char           lex_read_char (const lexer_t *this, lex_buf_pos pos);
+static slice_char_t   lex_read_str (const lexer_t *this, lex_buf_pos pos, uint32_t length);
+static bool           lex_matches (const lexer_t *this, lex_buf_pos pos, const char *str);
 /* symbol table */
 extern const char*    lex_ttype_str (lex_token_t tok);
-static enum lex_ttype lex_scan_sym_table (const lex_reader_t *this, lex_buf_pos pos, uint32_t len);
+static enum lex_ttype lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len);
 /* tokenizer */
-extern lex_token_t    lex_next_token (const lex_reader_t *this, const lex_token_t *prev);
-extern slice_char_t   lex_get_token (const lex_reader_t *this, lex_token_t tok);
-extern slice_char_t   lex_token_val (const lex_reader_t *this, lex_token_t tok);
+extern lex_token_t    lex_next_token (const lexer_t *this, const lex_token_t *prev);
+extern slice_char_t   lex_get_token (const lexer_t *this, lex_token_t tok);
+extern slice_char_t   lex_token_val (const lexer_t *this, lex_token_t tok);
 static int            isiden (int ch);
 static int            ishex (int ch);
-static lex_buf_pos    lex_skip_spaces (const lex_reader_t *this, lex_buf_pos pos);
-static lex_buf_pos    lex_scan_char (const lex_reader_t *this, lex_buf_pos pos);
-static lex_token_t    lex_token_at (const lex_reader_t *this, lex_buf_pos pos);
-static lex_buf_pos    lex_token_end (const lex_reader_t *this, lex_token_t tok); /* exclusive */
+static lex_buf_pos    lex_skip_spaces (const lexer_t *this, lex_buf_pos pos);
+static lex_buf_pos    lex_scan_char (const lexer_t *this, lex_buf_pos pos);
+static lex_token_t    lex_token_at (const lexer_t *this, lex_buf_pos pos);
+static lex_buf_pos    lex_token_end (const lexer_t *this, lex_token_t tok); /* exclusive */
 
 #ifdef LEX_IMPLEMENT
-/** lex_reader_t constructor - destructor */
+/** lexer_t constructor - destructor */
 /* {{{ */
-lex_reader_t
-lex_reader_create (const alloc_t *alloc, const char *fname)
+lexer_t
+lexer_create (const alloc_t *alloc, const char *fname)
 {
-	lex_reader_t ret = { .alloc = alloc, .fname = fname };
+	lexer_t ret = { .alloc = alloc, .fname = fname };
 	FILE *fp = fopen(fname, "r");
 
 	if (fp) {
 		fseek(fp, 0, SEEK_END);
-		set_slice(ret.buffer, allocate(*alloc, char, ftell(fp)));
+		set_slice(ret.buffer, allocate(*alloc, char, ftell(fp) + 1));
+		ret.buffer.length -= 1;
 		rewind(fp);
 		fread(ret.buffer.ptr, 1, ret.buffer.length, fp);
+		ret.buffer.ptr[ret.buffer.length] = '\0';
 		fclose(fp);
 	}
 
@@ -86,43 +85,32 @@ lex_reader_create (const alloc_t *alloc, const char *fname)
 }
 
 void
-lex_reader_destroy (const lex_reader_t *this)
+lexer_destroy (const lexer_t *this)
 {
 	if (this->buffer.ptr) deallocate(*this->alloc, this->buffer);
 }
 /* }}} */
 
-/** buf_pos operations */
-/* {{{ */
-static inline lex_buf_pos
-_pos_adv (lex_buf_pos pos, uint32_t offset)
-{ return (lex_buf_pos){ pos.pos + offset } ;}
-
-static inline uint32_t
-_pos_diff (lex_buf_pos a, lex_buf_pos b)
-{ return b.pos - a.pos; }
-/* }}} */
-
-/** lex_reader_t methods */
+/** lexer_t methods */
 /* {{{ */
 static inline bool
-lex_eof (const lex_reader_t *this, lex_buf_pos pos)
+lex_eof (const lexer_t *this, lex_buf_pos pos)
 { return pos.pos >= this->buffer.length; }
 
 static inline char
-lex_read_char (const lex_reader_t *this, lex_buf_pos pos)
+lex_read_char (const lexer_t *this, lex_buf_pos pos)
 { return lex_eof(this, pos) ? 0 : this->buffer.ptr[pos.pos]; }
 
 static inline slice_char_t
-lex_read_str (const lex_reader_t *this, lex_buf_pos pos, uint32_t length)
+lex_read_str (const lexer_t *this, lex_buf_pos pos, uint32_t length)
 {
-	return lex_eof(this, _pos_adv(pos, length - 1))
+	return lex_eof(this, POS_ADV(pos, length - 1))
 		? (slice_char_t){}
 		: (slice_char_t){ this->buffer.ptr + pos.pos, length };
 }
 
 static bool
-lex_matches (const lex_reader_t *this, lex_buf_pos pos, const char *str)
+lex_matches (const lexer_t *this, lex_buf_pos pos, const char *str)
 {
 	uint32_t len = strlen(str);
 	slice_char_t sl = lex_read_str(this, pos, len);
@@ -148,15 +136,15 @@ static void lex_temp_cleanup (lex_temp_t *this) { *this->ptr = this->backup; }
 /* {{{ */
 static struct { const char *key; enum lex_ttype value; } *symbol_table;
 
-#define OP(e, s, bp, ass) [DANA_    ## e] = s,
-#define TK(e, s)          [DANA_    ## e] = s,
-#define LIT(e)            [DANA_    ## e] = #e,
-#define KW(e, s)          [DANA_KW_ ## e] = s,
+#define OP(e, s) [DANA_    ## e] = s,
+#define TK(e, s) [DANA_    ## e] = s,
+#define LIT(e)   [DANA_    ## e] = #e,
+#define KW(e, s) [DANA_KW_ ## e] = s,
 static const char* symbol_arr[] = {
 	[DANA_ERROR] = "",
-	[DANA_COMMENT] = "",
 	DANA_TYPES
 	DANA_KEYWORDS
+	[DANA_COMMENT] = "",
 };
 #undef OP
 #undef TK
@@ -182,7 +170,7 @@ lex_token_type (lex_token_t tok)
 { return symbol_arr[tok.type]; }
 
 static enum lex_ttype
-lex_scan_sym_table (const lex_reader_t *this, lex_buf_pos pos, uint32_t len)
+lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len)
 {
 	slice_char_t sl = lex_read_str(this, pos, len);
 	if (!sl.ptr) return DANA_ERROR;
@@ -215,38 +203,38 @@ ishex (int ch)
 { return isdigit(ch) || ('a' <= ch && ch <= 'f'); }
 
 static lex_buf_pos
-lex_skip_spaces (const lex_reader_t *this, lex_buf_pos pos)
+lex_skip_spaces (const lexer_t *this, lex_buf_pos pos)
 {
 	for (; isspace(lex_read_char(this, pos)); ++pos.pos);
 	return pos;
 }
 
 static lex_buf_pos
-lex_scan_char (const lex_reader_t *this, lex_buf_pos pos)
+lex_scan_char (const lexer_t *this, lex_buf_pos pos)
 {
-	lex_buf_pos closing = _pos_adv(pos, 2);
+	lex_buf_pos closing = POS_ADV(pos, 2);
 
-	if (lex_read_char(this, _pos_adv(pos, 1)) == '\'') return closing;
-	if (lex_read_char(this, _pos_adv(pos, 1)) == '\\')
-		switch (lex_read_char(this, _pos_adv(pos, 2))) {
+	if (lex_read_char(this, POS_ADV(pos, 1)) == '\'') return closing;
+	if (lex_read_char(this, POS_ADV(pos, 1)) == '\\')
+		switch (lex_read_char(this, POS_ADV(pos, 2))) {
 		case 'n':
 		case 't':
 		case 'r':
 		case '\\':
 		case '\'':
 		case '"':
-			closing = _pos_adv(pos, 3); break;
+			closing = POS_ADV(pos, 3); break;
 		case 'x':
-			if (ishex(lex_read_char(this, _pos_adv(pos, 3))) &&
-					ishex(lex_read_char(this, _pos_adv(pos, 4))))
-				closing = _pos_adv(pos, 5);
+			if (ishex(lex_read_char(this, POS_ADV(pos, 3))) &&
+					ishex(lex_read_char(this, POS_ADV(pos, 4))))
+				closing = POS_ADV(pos, 5);
 		}
 	return lex_read_char(this, closing) == '\''
-		? _pos_adv(closing, 1) : (lex_buf_pos){0};
+		? POS_ADV(closing, 1) : (lex_buf_pos){0};
 }
 
 static lex_token_t
-lex_token_at (const lex_reader_t *this, lex_buf_pos pos)
+lex_token_at (const lexer_t *this, lex_buf_pos pos)
 {
 	lex_buf_pos end;
 	enum lex_ttype kword;
@@ -258,6 +246,8 @@ lex_token_at (const lex_reader_t *this, lex_buf_pos pos)
 	case '#':
 		return (lex_token_t){ DANA_COMMENT, pos };
 	case '-':
+		if (!isdigit(lex_read_char(this, POS_ADV(pos, 1))))
+			goto lex_operator;
 	case '0' ... '9':
 		return (lex_token_t){ DANA_NUMBER, pos };
 	case '"':
@@ -267,12 +257,13 @@ lex_token_at (const lex_reader_t *this, lex_buf_pos pos)
 	case '_':
 	case 'a' ... 'z':
 	case 'A' ... 'Z':
-		for (end=_pos_adv(pos, 1); isiden(lex_read_char(this, end));
+		for (end=POS_ADV(pos, 1); isiden(lex_read_char(this, end));
 				++end.pos);
-		kword = lex_scan_sym_table(this, pos, _pos_diff(pos, end));
+		kword = lex_scan_sym_table(this, pos, POS_DIFF(pos, end));
 		if (kword) return (lex_token_t){ kword, pos };
 		else       return (lex_token_t){ DANA_NAME, pos };
-	default: /* operator */
+lex_operator:
+	default:
 		if ((kword = lex_scan_sym_table(this, pos, 2)))
 			return (lex_token_t){ kword, pos };
 		if ((kword = lex_scan_sym_table(this, pos, 1)))
@@ -282,7 +273,7 @@ lex_token_at (const lex_reader_t *this, lex_buf_pos pos)
 }
 
 static lex_buf_pos
-lex_token_end (const lex_reader_t *this, lex_token_t tok)
+lex_token_end (const lexer_t *this, lex_token_t tok)
 {
 	lex_buf_pos end = tok.pos;
 
@@ -292,7 +283,7 @@ lex_token_end (const lex_reader_t *this, lex_token_t tok)
 			for (++end.pos; lex_read_char(this, end) != '\n'; ++end.pos);
 			return end;
 		} else {
-			for (end.pos += 2; lex_read_char(this, _pos_adv(end, 1)) &&
+			for (end.pos += 2; lex_read_char(this, POS_ADV(end, 1)) &&
 					!lex_matches(this, end,"*)");
 					++end.pos)
 				if (lex_matches(this, end,"(*"))
@@ -300,7 +291,7 @@ lex_token_end (const lex_reader_t *this, lex_token_t tok)
 							DANA_COMMENT, end
 							});
 			if (lex_matches(this, end,"*)"))
-				return _pos_adv(end, 2);
+				return POS_ADV(end, 2);
 			tok.type = DANA_ERROR;
 			return (lex_buf_pos){};
 		}
@@ -310,7 +301,7 @@ lex_token_end (const lex_reader_t *this, lex_token_t tok)
 	case DANA_STRING:
 		for (++end.pos; lex_read_char(this, end) != '"'; ++end.pos)
 			if (lex_matches(this, end, "\\\"")) ++end.pos;
-		return _pos_adv(end, 1);
+		return POS_ADV(end, 1);
 	case DANA_CHAR:
 		return lex_scan_char(this, tok.pos);
 	case DANA_NAME:
@@ -318,7 +309,7 @@ lex_token_end (const lex_reader_t *this, lex_token_t tok)
 		for (++end.pos; isiden(lex_read_char(this, end)); ++end.pos);
 		return end;
 	default: /* operator */
-		return _pos_adv(end, strlen(lex_ttype_str(tok)));
+		return POS_ADV(end, strlen(lex_ttype_str(tok)));
 	}
 }
 
@@ -327,11 +318,11 @@ lex_ttype_str (lex_token_t tok)
 { return symbol_arr[tok.type]; }
 
 inline slice_char_t
-lex_token_val (const lex_reader_t *this, lex_token_t tok)
-{ return lex_read_str(this, tok.pos, _pos_diff(tok.pos, lex_token_end(this, tok))); }
+lex_token_val (const lexer_t *this, lex_token_t tok)
+{ return lex_read_str(this, tok.pos, POS_DIFF(tok.pos, lex_token_end(this, tok))); }
 
 lex_token_t
-lex_next_token (const lex_reader_t *this, const lex_token_t *prev)
+lex_next_token (const lexer_t *this, const lex_token_t *prev)
 {
 	lex_buf_pos start = {0};
 	lex_token_t ret;
