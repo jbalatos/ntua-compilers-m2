@@ -30,31 +30,31 @@
 	LIT(STRING)					\
 	LIT(EOF)
 
-#define DANA_KEYWORDS					\
-	KW(AND,		"and")	/* op keywords */	\
-	KW(OR,		"or")				\
-	KW(NOT,		"not")				\
-	KW(AS,		"as")				\
-	KW(BEGIN,	"begin")/* non-op keywords */	\
-	KW(BREAK,	"break")			\
-	KW(BYTE,	"byte")				\
-	KW(CONT,	"continue")			\
-	KW(DECL,	"decl")				\
-	KW(DEF,		"def")				\
-	KW(ELIF,	"elif")				\
-	KW(ELSE,	"else")				\
-	KW(END,		"end")				\
-	KW(EXIT,	"exit")				\
-	KW(FALSE,	"false")			\
-	KW(IF,		"if")				\
-	KW(IS,		"is")				\
-	KW(INT,		"int")				\
-	KW(LOOP,	"loop")				\
-	KW(REF,		"ref")				\
-	KW(RETURN,	"return")			\
-	KW(SKIP,	"skip")				\
-	KW(TRUE,	"true")				\
-	KW(VAR,		"var")				\
+#define DANA_KEYWORDS \
+	KW    (AND,			"and")	/* op keywords */	\
+	KW    (OR,			"or")				\
+	KW    (NOT,			"not")				\
+	KW    (AS,			"as")				\
+	KW_EX(BEGIN,	BLOCK,		"begin")/* non-op keywords */	\
+	KW   (BREAK,			"break")			\
+	KW   (BYTE,			"byte")				\
+	KW   (CONT,			"continue")			\
+	KW   (DECL,			"decl")				\
+	KW   (DEF,			"def")				\
+	KW_EX(ELIF,	COND,		"elif")				\
+	KW   (ELSE,			"else")				\
+	KW_EX(END,	SIMPLE_BLOCK,	"end")				\
+	KW   (EXIT,			"exit")				\
+	KW   (FALSE,			"false")			\
+	KW_EX(IF,	SIMPLE_COND,	"if")				\
+	KW   (IS,			"is")				\
+	KW   (INT,			"int")				\
+	KW   (LOOP,			"loop")				\
+	KW   (REF,			"ref")				\
+	KW   (RETURN,			"return")			\
+	KW   (SKIP,			"skip")				\
+	KW   (TRUE,			"true")				\
+	KW   (VAR,			"var")				\
 
 #define DANA_KW case DANA_KW_AND ... DANA_KW_VAR
 
@@ -86,4 +86,6 @@
 
 #define CLOSING_OP 	case DANA_CLOSE_PAREN: \
 			case DANA_CLOSE_BRACKET
+#define BOOLEAN		case DANA_KW_TRUE:\
+			case DANA_KW_FALSE
 

@@ -20,16 +20,18 @@ typedef struct {
 
 POS_DECL(lex_buf_pos, 24);
 
-#define OP(e, s) DANA_    ## e,
-#define TK(e, s) DANA_    ## e,
-#define LIT(e)   DANA_    ## e,
-#define KW(e, s) DANA_KW_ ## e,
+#define OP(e,...) DANA_    ## e,
+#define TK(e,...) DANA_    ## e,
+#define LIT(e)    DANA_    ## e,
+#define KW(e,...) DANA_KW_ ## e,
+#define KW_EX     KW
 typedef struct {
 	enum lex_ttype {
 		DANA_ERROR = 0,
 		DANA_TYPES
 		DANA_KEYWORDS
-		DANA_COMMENT
+		DANA_COMMENT,
+		LEX_TTYPE_LEN,
 	} type : 8;
 	lex_buf_pos pos;
 } lex_token_t;
@@ -37,6 +39,7 @@ typedef struct {
 #undef TK
 #undef LIT
 #undef KW
+#undef KW_EX
 
 /* lexer_t init */
 #define LEXER_CLEANUP lexer_t \
@@ -134,13 +137,14 @@ void lex_temp_cleanup (lex_temp_t *this) { *this->ptr = this->backup; }
 
 /** symbol table */
 /* {{{ */
-static struct { const char *key; enum lex_ttype value; } *symbol_table;
+static struct { const char *key; enum lex_ttype value; } *lex_symbol_table;
 
 #define OP(e, s) [DANA_    ## e] = s,
 #define TK(e, s) [DANA_    ## e] = s,
 #define LIT(e)   [DANA_    ## e] = #e,
 #define KW(e, s) [DANA_KW_ ## e] = s,
-static const char* symbol_arr[] = {
+#define KW_EX(e, al, s) KW(e, s)
+static const char* lex_symbol_arr[] = {
 	[DANA_ERROR] = "",
 	DANA_TYPES
 	DANA_KEYWORDS
@@ -150,24 +154,25 @@ static const char* symbol_arr[] = {
 #undef TK
 #undef LIT
 #undef KW
+#undef KW_EX
 
 void __attribute__((constructor))
-create_symbol_table (void)
+create_lex_symbol_table (void)
 {
-	size_t table_size = sizeof(symbol_arr) / sizeof(symbol_arr[0]);
-	for (size_t i=0; i<table_size; ++i) if (symbol_arr[i])
-		hm_put(symbol_table, symbol_arr[i], i);
+	size_t table_size = sizeof(lex_symbol_arr) / sizeof(lex_symbol_arr[0]);
+	for (size_t i=0; i<table_size; ++i) if (lex_symbol_arr[i])
+		hm_put(lex_symbol_table, lex_symbol_arr[i], i);
 }
 
 void __attribute__((destructor))
-destroy_symbol_table (void)
+destroy_lex_symbol_table (void)
 {
-	hm_free(symbol_table);
+	hm_free(lex_symbol_table);
 }
 
 const char*
 lex_token_type (lex_token_t tok)
-{ return symbol_arr[tok.type]; }
+{ return lex_symbol_arr[tok.type]; }
 
 enum lex_ttype
 _lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len)
@@ -175,7 +180,7 @@ _lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len)
 	slice_char_t sl = _lex_read_str(this, pos, len);
 	if (!sl.ptr) return DANA_ERROR;
 	LEX_TEMP_SLICE(sl);
-	return hm_get(symbol_table, sl.ptr);
+	return hm_get(lex_symbol_table, sl.ptr);
 }
 /* }}} */
 
@@ -315,7 +320,7 @@ _lex_token_end (const lexer_t *this, lex_token_t tok)
 
 inline const char*
 lex_ttype_str (lex_token_t tok)
-{ return symbol_arr[tok.type]; }
+{ return lex_symbol_arr[tok.type]; }
 
 inline slice_char_t
 lex_token_val (const lexer_t *this, lex_token_t tok)

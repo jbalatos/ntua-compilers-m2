@@ -9,55 +9,71 @@
 		assert(cond && "ASSERT\t%s:%d\t" fmt, __FILE__, __LINE__)
 #endif
 
-POS_DECL(ast_node_pos, 32);
-POS_DECL(token_pos, 24);
+POS_DECL(ast_node_pos, 24);
+POS_DECL(lex_token_pos, 24);
+POS_DECL(extra_pos, 24);
 
 #define OP(e, s) AST_    ## e,
 #define TK(e, s) AST_    ## e,
 #define LIT(e)   AST_    ## e,
 #define KW(e, s) AST_KW_ ## e,
+#define KW_EX(e, al, s) LIT(al)
 typedef struct {
 	enum ast_ttype {
 		AST_ERROR = 0,
 		DANA_TYPES
 		DANA_KEYWORDS
+		AST_TTYPE_LEN,
 	} type : 8;
 	union {
-		struct { ast_node_pos lhs, rhs; } op_data;
-		struct { uint32_t value; } pl_data;
-		struct { token_pos tok; } name_data;
+		struct ast_bin_data { ast_node_pos lhs, rhs; } bin_data;
+		struct ast_pl_data { uint32_t value; } pl_data;
+		struct ast_name_data { lex_token_pos tok; } name_data;
+		struct ast_extra_data { uint32_t length; extra_pos pos; } extra_data;
+		struct ast_if_data { ast_node_pos cond, body; } if_data;
 	};
 } ast_node_t;
 #undef OP
 #undef TK
 #undef LIT
 #undef KW
+#undef KW_EX
 
 typedef struct {
-	lexer_t lexer;
-	lex_token_t *tokens;
-	lex_token_t *last;
-	ast_node_t *ast;
+	lexer_t       lexer;  /* underlying lexer */
+	lex_token_t  *tokens; /* dynamic array of the tokens created by lexer */
+	lex_token_t  *last;   /* pointer to last element of tokens */
+	ast_node_t   *ast;    /* dynamic array of the AST nodes */
+	ast_node_pos *extra;  /* dynamic array of slices of AST indices, used by
+				 specific node types */
 } parser_t;
 
 #define PARSER_CLEANUP parser_t __attribute__((cleanup(parser_destroy)))
-extern parser_t      parser_create (const alloc_t *alloc, const char *fname);
-extern void          parser_destroy (const parser_t *this);
+extern parser_t               parser_create (const alloc_t *alloc, const char *fname);
+extern void                   parser_destroy (const parser_t *this);
 /* parser methods */
-extern lex_token_t   parser_get_token (const parser_t *this, token_pos pos);
-extern ast_node_t    parser_get_node (const parser_t *this, ast_node_pos pos);
-extern slice_char_t  parser_token_val (const parser_t *this, lex_token_t tok);
-extern token_pos     _parser_next_token (parser_t *this);
-extern token_pos     _parser_peek_token (parser_t *this);
+extern lex_token_t            parser_get_token (const parser_t *this, lex_token_pos pos);
+extern ast_node_t             parser_get_node (const parser_t *this, ast_node_pos pos);
+extern ast_node_pos           parser_get_extra (const parser_t *this, extra_pos pos);
+extern slice_char_t           parser_token_val (const parser_t *this, lex_token_t tok);
+extern struct ast_extra_data  parser_append_extras (parser_t *this, ast_node_pos *arr);
+extern lex_token_pos         _parser_next_token (parser_t *this);
+extern lex_token_pos         _parser_peek_token (parser_t *this);
+extern lex_token_pos         _parser_pop_token (parser_t *this);
 /* pratt parser */
-extern ast_node_pos  _parse_expr (parser_t *this, uint8_t min_bp);
-extern ast_node_pos  parser_parse (parser_t *this);
+extern ast_node_pos          _parse_expr (parser_t *this, uint8_t min_bp);
+extern ast_node_pos          _parse_block (parser_t *this);
+extern ast_node_pos          _parse_stmt (parser_t *this);
+extern ast_node_pos           parser_parse (parser_t *this);
 
 #define PEEK_TOKEN(prs, tok, pos) ({                     \
-		(pos) = _parser_peek_token((prs));        \
+		(pos) = _parser_peek_token((prs));       \
 		(tok) = parser_get_token((prs), (pos)); })
 #define NEXT_TOKEN(prs, tok, pos) ({                     \
-		(pos) = _parser_next_token((prs));        \
+		(pos) = _parser_next_token((prs));       \
+		(tok) = parser_get_token((prs), (pos)); })
+#define POP_TOKEN(prs, tok, pos) ({                      \
+		(pos) = _parser_pop_token((prs));        \
 		(tok) = parser_get_token((prs), (pos)); })
 #define AST_APPEND(prs, node) ({                            \
 		arr_push((prs)->ast, (node));               \
@@ -79,14 +95,16 @@ parser_create (const alloc_t *alloc, const char *fname)
 	parser_t ret = { .lexer = lexer_create(alloc, fname) };
 	arr_push(ret.ast, (ast_node_t){});
 	arr_push(ret.tokens, (lex_token_t){});
+	arr_push(ret.extra, (ast_node_pos){});
 	return ret;
 }
 
 void
 parser_destroy (const parser_t *this)
 {
-	arr_free(this->ast);
 	arr_free(this->tokens);
+	arr_free(this->ast);
+	arr_free(this->extra);
 	lexer_destroy(&this->lexer);
 }
 /* }}} */
@@ -94,7 +112,7 @@ parser_destroy (const parser_t *this)
 /** parser methods */
 /* {{{ */
 lex_token_t
-parser_get_token (const parser_t *this, token_pos pos)
+parser_get_token (const parser_t *this, lex_token_pos pos)
 {
 	_assert(pos.pos < arr_ulen(this->tokens),
 			"Token %u out of bounds (%lu)",
@@ -111,29 +129,59 @@ parser_get_node (const parser_t *this, ast_node_pos pos)
 	return this->ast[pos.pos];
 }
 
+ast_node_pos
+parser_get_extra (const parser_t *this, extra_pos pos)
+{
+	_assert(pos.pos < arr_ulen(this->extra),
+			"Extra %u out of bounds (%lu)",
+			pos.pos, arr_ulen(this->extra));
+	return this->extra[pos.pos];
+}
+
 inline slice_char_t
 parser_token_val (const parser_t *this, lex_token_t tok)
 { return lex_token_val(&this->lexer, tok); }
 
+struct ast_extra_data
+parser_append_extras (parser_t *this, ast_node_pos *arr)
+{
+	struct ast_extra_data ret = {
+		.length = arr_ulen(arr),
+		.pos = { arr_ulen(this->extra) },
+	};
+	for (uint32_t i=0; i<arr_ulen(arr); ++i) arr_push(this->extra, arr[i]);
+	arr_free(arr);
+	return ret;
+}
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsequence-point"
-token_pos
+lex_token_pos
 _parser_next_token (parser_t *this)
 {
 	lex_token_t tok = lex_next_token(&this->lexer, this->last);
 	if (arr_ulen(this->tokens) == 1 || POS_CMP(arr_back(this->tokens).pos, tok.pos))
 		arr_push(this->tokens, tok);
 	this->last = &arr_back(this->tokens);
-	return (token_pos){ arr_ulen(this->tokens) - 1 };
+	return (lex_token_pos){ arr_ulen(this->tokens) - 1 };
 }
 #pragma GCC diagnostic pop
 
-token_pos
+lex_token_pos
 _parser_peek_token (parser_t *this)
 {
 	if (arr_ulen(this->tokens) == 1 || !POS_CMP(arr_back(this->tokens).pos, this->last->pos))
 		arr_push(this->tokens, lex_next_token(&this->lexer, this->last));
-	return (token_pos){ arr_ulen(this->tokens) - 1 };
+	this->last = &(this->tokens[arr_ulen(this->tokens) - 2]);
+	return (lex_token_pos){ arr_ulen(this->tokens) - 1 };
+}
+
+lex_token_pos
+_parser_pop_token (parser_t *this)
+{
+	assert(arr_ulen(this->tokens) > 1 && this->last != &arr_back(this->tokens));
+	this->last = &arr_back(this->tokens);
+	return (lex_token_pos){ arr_ulen(this->tokens) - 1 };
 }
 /* }}} */
 
@@ -142,123 +190,11 @@ _parser_peek_token (parser_t *this)
 /* }}} */
 
 /** pratt parser */
-/* {{{ */
+#include "pratt_parse.h"
+
 ast_node_pos
-_parse_expr (parser_t *this, uint8_t min_bp)
+parser_parse (parser_t *this)
 {
-	static uint16_t parse_level = 0;
-
-	ast_node_t node;
-	ast_node_pos lhs;
-	parser_bp_t bp;
-	lex_token_t tok;
-	token_pos pos;
-
-	++parse_level;
-	NEXT_TOKEN(this, tok, pos);
-	printf("parsing (min_bp = %u, level = %u)\tfirst_token = %10s\t|%.*s|\n",
-			min_bp, parse_level, lex_ttype_str(tok),
-			UNSLICE(parser_token_val(this, tok)));
-
-	/* initial token */
-	switch (tok.type) {
-	case DANA_NAME:
-		node = (ast_node_t){ .type = AST_NAME, .name_data.tok = pos };
-		lhs = AST_APPEND(this, node);
-		break;
-	case DANA_NUMBER: {
-		slice_char_t sl = parser_token_val(this, tok);
-		LEX_TEMP_SLICE(sl);
-		node = (ast_node_t){
-			.type = AST_NUMBER, .pl_data.value = atoi(sl.ptr),
-		};
-		lhs = AST_APPEND(this, node);
-		break;
-	}
-	case DANA_OPEN_PAREN:
-		lhs = _parse_expr(this, 0);
-		NEXT_TOKEN(this, tok, pos);
-		_assert(tok.type == DANA_CLOSE_PAREN,
-				"No closing paren found: found [%s] |%.*s|",
-				lex_ttype_str(tok),
-				UNSLICE(parser_token_val(this, tok)));
-		node = parser_get_node(this, lhs);
-		break;
-	default:
-		if (bp_is_prefix(tok, &bp)) {
-			node = (ast_node_t){
-				.type = tok.type,
-				.op_data.lhs = _parse_expr(this, bp.rhs),
-			};
-			lhs = AST_APPEND(this, node);
-			break;
-		}
-		_assert(false, "First token not recognised: [%s] |%.*s|",
-				lex_ttype_str(tok),
-				UNSLICE(parser_token_val(this, tok)));
-	}
-
-	/* following */
-	while (PEEK_TOKEN(this, tok, pos).type != DANA_EOF) {
-		printf("peeking\t\t\t\tfirst_token = %10s\t|%.*s|\n",
-				lex_ttype_str(tok),
-				UNSLICE(parser_token_val(this, tok)));
-		switch (tok.type) {
-		CLOSING_OP:
-			node = (ast_node_t){ .type = tok.type };
-			break;
-		default:
-			if (bp_is_infix(tok, &bp) || bp_is_postfix(tok, &bp)) {
-				node = (ast_node_t){ .type = tok.type };
-				break;
-			}
-			_assert(false, "Peeked token not recognised: [%s] |%.*s|",
-					lex_ttype_str(tok),
-					UNSLICE(parser_token_val(this, tok)));
-		}
-
-		if (bp_is_postfix(node, &bp)) {
-			if (bp.lhs < min_bp) break;
-			_parser_next_token(this);
-			node.op_data.lhs = lhs;
-			switch (tok.type) {
-			case DANA_OPEN_BRACKET:
-				node.op_data.rhs = _parse_expr(this, 0);
-				NEXT_TOKEN(this, tok, pos);
-				_assert(tok.type == DANA_CLOSE_BRACKET,
-						"No closing bracket found: found [%s] |%.*s|",
-						lex_ttype_str(tok),
-						UNSLICE(parser_token_val(this, tok)));
-				break;
-			case DANA_OPEN_PAREN:
-				node.op_data.rhs = _parse_expr(this, 0);
-				NEXT_TOKEN(this, tok, pos);
-				_assert(tok.type == DANA_CLOSE_PAREN,
-						"No closing paren found: found [%s] |%.*s|",
-						lex_ttype_str(tok),
-						UNSLICE(parser_token_val(this, tok)));
-				break;
-			default:
-			}
-			lhs = AST_APPEND(this, node);
-			continue;
-		}
-
-		if (bp_is_infix(node, &bp)) {
-			if (bp.lhs < min_bp) break;
-			_parser_next_token(this);
-			node.op_data.lhs = lhs;
-			node.op_data.rhs = _parse_expr(this, bp.rhs);
-			lhs = AST_APPEND(this, node);
-			continue;
-		}
-		break;
-	}
-
-	--parse_level;
-	return lhs;
+	return _parse_block(this);
 }
-
-ast_node_pos parser_parse (parser_t *this) { return _parse_expr(this, 0); }
-/* }}} */
 #endif // PARSER_IMPLEMENT
