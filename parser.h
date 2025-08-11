@@ -23,24 +23,20 @@ typedef struct {
 		AST_ERROR = 0,
 		DANA_TYPES
 		DANA_KEYWORDS
+		AST_PROC,
+		AST_ARGS,
 		AST_TTYPE_LEN,
 	} type : 8;
 	union {
-		struct ast_bin_data {
-			ast_node_pos lhs, rhs;
-		} bin_data;
-		struct ast_pl_data {
-			uint32_t value;
-		} pl_data;
-		struct ast_named_data {
-			lex_token_pos name; ast_node_pos block;
-		} named_data;
+		struct ast_num_data { uint32_t value; } num_data; /* number */
+		struct ast_lit_data { lex_token_pos tok; } lit_data; /* string / char */
+		struct ast_bin_data { ast_node_pos lhs, rhs; } bin_data; /* binop */
+		struct ast_mixed_data {
+			lex_token_pos tok; ast_node_pos node;
+		} mixed_data; /* nodes with token (and opt. node) data */
 		struct ast_extra_data {
 			uint32_t length; extra_pos pos;
-		} extra_data;
-		struct ast_if_data {
-			ast_node_pos cond, body;
-		} if_data;
+		} extra_data; /* nodes with data in parser::extra */
 	};
 } ast_node_t;
 #undef OP
@@ -72,8 +68,11 @@ extern lex_token_pos         _parser_next_token (parser_t *this);
 extern lex_token_pos         _parser_peek_token (parser_t *this);
 extern lex_token_pos         _parser_pop_token (parser_t *this);
 /* pratt parser */
-extern ast_node_pos          _parse_expr (parser_t *this, uint8_t min_bp);
+extern ast_node_pos          _parse_args (parser_t *this);
 extern ast_node_pos          _parse_block (parser_t *this);
+extern ast_node_pos          _parse_cond (parser_t *this);
+extern ast_node_pos          _parse_expr (parser_t *this, uint8_t min_bp);
+extern ast_node_pos          _parse_lval (parser_t *this);
 extern ast_node_pos          _parse_stmt (parser_t *this);
 extern ast_node_pos           parser_parse (parser_t *this);
 
@@ -152,10 +151,10 @@ parser_get_extra (const parser_t *this, extra_pos pos)
 slice_char_t
 parser_get_name (const parser_t *this, ast_node_t node)
 {
-	lex_token_t tok = parser_get_token(this, node.named_data.name);
+	lex_token_t tok = parser_get_token(this, node.mixed_data.tok);
 	switch (node.type) {
 	AST_NAMED_NODE:
-		if (node.named_data.name.pos)
+		if (node.mixed_data.tok.pos)
 			return parser_token_val(this, tok);
 		else
 			return (slice_char_t){};
@@ -212,10 +211,6 @@ _parser_pop_token (parser_t *this)
 	this->last = &arr_back(this->tokens);
 	return (lex_token_pos){ arr_ulen(this->tokens) - 1 };
 }
-/* }}} */
-
-/** binding power */
-/* {{{ */
 /* }}} */
 
 /** pratt parser */

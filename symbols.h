@@ -87,7 +87,10 @@
 #define AST_NAMED_NODE	case AST_KW_BREAK: \
 			case AST_KW_CONT:  \
 			case AST_LOOP:     \
-			case AST_NAME
+			case AST_NAME:     \
+			case AST_PROC
+#define LVALUE		case DANA_NAME:  \
+			case DANA_STRING
 #define CLOSING_OP 	case DANA_CLOSE_PAREN: \
 			case DANA_CLOSE_BRACKET
 #define BOOLEAN		case DANA_KW_TRUE:\

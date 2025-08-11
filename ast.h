@@ -6,7 +6,7 @@ extern void          ast_node_print (const parser_t *this, ast_node_pos pos);
 #ifdef AST_IMPLEMENT
 
 #define OP(e, s) [AST_    ## e] = s,
-#define TK(e, s)
+#define TK(e, s) [AST_    ## e] = #e,
 #define LIT(e)   [AST_    ## e] = #e,
 #define KW(e, s) [AST_KW_ ## e] = s,
 #define KW_EX(e, al, s) LIT(al)
@@ -14,6 +14,8 @@ static const char* ast_type_table[] = {
 	[AST_ERROR] = "error",
 	DANA_TYPES
 	DANA_KEYWORDS
+	[AST_PROC] = "proc-call",
+	[AST_ARGS] = "args",
 };
 #undef OP
 #undef TK
@@ -57,15 +59,35 @@ ast_node_print (const parser_t *this, ast_node_pos pos)
 	case AST_KW_BREAK:
 	case AST_KW_CONT:
 		printf("(%s", ast_type_str(node));
-		if (node.named_data.name.pos)
+		if (node.mixed_data.tok.pos)
 			printf(" \"%.*s\"", UNSLICE(parser_get_name(this, node)));
+		printf(")");
+		break;
+	case AST_ASSIGN:
+		printf("(");    ast_node_print(this, node.bin_data.lhs);
+		printf(" := "); ast_node_print(this, node.bin_data.rhs);
+		printf(")");
+		break;
+	case AST_ARGS:
+		printf("(");
+		for (i=0; i<node.extra_data.length; ++i) {
+			if (i) printf(", ");
+			ast_node_print(this, parser_get_extra(this,
+						POS_ADV(node.extra_data.pos, i)));
+		}
+		printf(")");
+		break;
+	case AST_PROC:
+		printf("(proc %.*s", UNSLICE(parser_get_name(this, node)));
+		if (node.mixed_data.node.pos)
+			ast_node_print(this, node.mixed_data.node);
 		printf(")");
 		break;
 	case AST_LOOP:
 		printf("(loop ");
-		if (node.named_data.name.pos)
+		if (node.mixed_data.tok.pos)
 			printf("\"%.*s\" ", UNSLICE(parser_get_name(this, node)));
-		ast_node_print(this, node.named_data.block);
+		ast_node_print(this, node.mixed_data.node);
 		printf(")");
 		break;
 	case AST_COND:
@@ -89,10 +111,17 @@ ast_node_print (const parser_t *this, ast_node_pos pos)
 		printf(")");
 		break;
 	case AST_NUMBER:
-		printf("%d", node.pl_data.value);
+		printf("%d", node.num_data.value);
+		break;
+	case AST_STRING:
+		printf("\"%.*s\"", UNSLICE(parser_get_name(this, node)));
 		break;
 	case AST_NAME:
 		printf("%.*s", UNSLICE(parser_get_name(this, node)));
+		if (node.mixed_data.node.pos) {
+			printf("["); ast_node_print(this, node.mixed_data.node);
+			printf("]");
+		}
 		break;
 	BOOLEAN:
 		printf(node.type == AST_KW_TRUE ? "TRUE" : "FALSE");
