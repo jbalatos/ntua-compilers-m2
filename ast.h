@@ -52,7 +52,17 @@ ast_node_print (const parser_t *this, ast_node_pos pos)
 		break;
 	case AST_KW_SKIP:
 	case AST_KW_EXIT:
-		printf("(%s)", ast_type_str(node)); break;
+		printf("(%s)", ast_type_str(node));
+		break;
+	case AST_KW_BREAK:
+	case AST_KW_CONT:
+		printf("(%s", ast_type_str(node));
+		if (node.name_data.tok.pos)
+			printf(" \"%.*s\"", UNSLICE(parser_token_val( this,
+						parser_get_token(this, node.name_data.tok)
+						)));
+		printf(")");
+		break;
 	case AST_COND:
 		printf("(if [%u]", node.extra_data.length);
 		for (i=0; i + 1<node.extra_data.length; i += 2) {

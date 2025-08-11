@@ -193,6 +193,19 @@ _parse_stmt (parser_t *this)
 				UNSLICE(parser_token_val(this, tok)));
 		node.bin_data.lhs = _parse_expr(this, 0);
 		break;
+	case DANA_KW_BREAK:
+	case DANA_KW_CONT:
+		POP_TOKEN(this, tok, pos);
+		node = (ast_node_t){ .type = tok.type };
+		if (PEEK_TOKEN(this, tok, pos).type == DANA_COLON) {
+			POP_TOKEN(this, tok, pos);
+			_assert(NEXT_TOKEN(this, tok, pos).type == DANA_NAME,
+					"Expected name for break/cont, found:\t%s [%.*s]",
+					lex_ttype_str(tok),
+					UNSLICE(parser_token_val(this, tok)));
+			node.name_data.tok = pos;
+		}
+		break;
 	case DANA_KW_IF:
 		return _parse_cond(this);
 	default:
