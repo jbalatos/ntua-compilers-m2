@@ -120,7 +120,7 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 	lex_token_t tok;
 	lex_token_pos pos;
 
-	NEXT_TOKEN(this, tok, pos);
+	PEEK_TOKEN(this, tok, pos);
 	printf("parse expr (min_bp = %2u, level = %u)\tfirst_token = %10s\t|%.*s|\n",
 			min_bp, ++level, lex_ttype_str(tok),
 			UNSLICE(parser_token_val(this, tok)));
@@ -128,18 +128,20 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 	/* initial token */
 	switch (tok.type) {
 	BOOLEAN:
+		POP_TOKEN(this, tok, pos);
 		node = (ast_node_t){ .type = tok.type };
 		lhs = AST_APPEND(this, node);
 		break;
 	case DANA_CHAR:
+		POP_TOKEN(this, tok, pos);
 		node = (ast_node_t){ .type = AST_CHAR, .lit_data.tok = pos };
 		lhs = AST_APPEND(this, node);
 		break;
-	case DANA_NAME:
-		node = (ast_node_t){ .type = AST_NAME, .mixed_data.tok = pos };
-		lhs = AST_APPEND(this, node);
+	LVALUE:
+		lhs = _parse_lval(this);
 		break;
 	case DANA_NUMBER: {
+		POP_TOKEN(this, tok, pos);
 		slice_char_t sl = parser_token_val(this, tok);
 		LEX_TEMP_SLICE(sl);
 		node = (ast_node_t){
@@ -149,6 +151,7 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 		break;
 	}
 	case DANA_OPEN_PAREN:
+		POP_TOKEN(this, tok, pos);
 		lhs = _parse_expr(this, 0);
 		_assert(NEXT_TOKEN(this, tok, pos).type == DANA_CLOSE_PAREN,
 				"No closing paren found: found [%s] |%.*s|",
@@ -157,6 +160,7 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 		node = parser_get_node(this, lhs);
 		break;
 	default:
+		POP_TOKEN(this, tok, pos);
 		if (bp_is_prefix(tok, &bp)) {
 			node = (ast_node_t){
 				.type = tok.type,
@@ -185,6 +189,8 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 				break;
 			}
 			printf("\tdidn't use peeked token --- END lvl %2u\n", level--);
+			ast_node_print(this, lhs);
+			printf("\n\n");
 			return lhs;
 		}
 
@@ -192,21 +198,31 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 			if (bp.lhs < min_bp) break;
 			POP_TOKEN(this, tok, pos);
 			node.bin_data.lhs = lhs;
+
 			switch (tok.type) {
 			case DANA_OPEN_BRACKET:
+				printf("--- found sub\n");
 				node.bin_data.rhs = _parse_expr(this, 0);
 				_assert(NEXT_TOKEN(this, tok, pos).type == DANA_CLOSE_BRACKET,
 						"No closing bracket found: found [%s] |%.*s|",
 						lex_ttype_str(tok),
 						UNSLICE(parser_token_val(this, tok)));
+				printf("--- done sub\n");
 				break;
 			case DANA_OPEN_PAREN:
-				node.type = AST_FUNC;
-				node.bin_data.rhs = _parse_args(this);
+				printf("-- found func-call\n");
+				_assert(parser_get_node(this, lhs).type == AST_NAME,
+						"func-call on invalid ID:\t%10s]",
+						ast_type_str(parser_get_node(this, lhs)));
+				node.mixed_data = (struct ast_mixed_data){
+					.tok = parser_get_node(this, lhs).lit_data.tok,
+					.node = _parse_args(this),
+				};
 				_assert(NEXT_TOKEN(this, tok, pos).type == DANA_CLOSE_PAREN,
 						"No closing paren found: found [%s] |%.*s|",
 						lex_ttype_str(tok),
 						UNSLICE(parser_token_val(this, tok)));
+				printf("-- done func-call\n");
 				break;
 			default:
 			}
@@ -226,6 +242,8 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 	}
 
 	printf("parse expr --- END lvl %2u\n", level--);
+	ast_node_print(this, lhs);
+	printf("\n\n");
 	return lhs;
 }/* }}} */
 
@@ -238,25 +256,24 @@ _parse_lval (parser_t *this)
 
 	switch (NEXT_TOKEN(this, tok, pos).type) {
 	case DANA_STRING:
-		node = (ast_node_t){
-			.type = AST_STRING, .mixed_data.tok = pos,
-		};
-		break;
 	case DANA_NAME:
-		node = (ast_node_t){
-			.type = AST_NAME, .mixed_data.tok = pos,
-		};
-		if (PEEK_TOKEN(this, tok, pos).type == DANA_OPEN_BRACKET) {
-			POP_TOKEN(this, tok, pos);
-			node.mixed_data.node = _parse_lval(this);
-			_assert(NEXT_TOKEN(this, tok, pos).type == DANA_CLOSE_BRACKET,
-					"No closing bracket:\t%s [%.*s]",
-					lex_ttype_str(tok),
-					UNSLICE(parser_token_val(this, tok)));
-		}
+		node = (ast_node_t){ .type = tok.type, .lit_data.tok = pos };
 		break;
 	default:
-		_assert(false, "Wrong token when parsing token: %10s [%.*s]",
+		_assert(false, "Wrong token when parsing lvalue: %10s [%.*s]",
+				lex_ttype_str(tok),
+				UNSLICE(parser_token_val(this, tok)));
+	}
+
+	while (PEEK_TOKEN(this, tok, pos).type == DANA_OPEN_BRACKET) {
+		POP_TOKEN(this, tok, pos);
+		node = (ast_node_t){
+			.type = AST_SUB,
+			.bin_data.lhs = AST_APPEND(this, node),
+			.bin_data.rhs = _parse_expr(this, 0),
+		};
+		_assert(NEXT_TOKEN(this, tok, pos).type == DANA_CLOSE_BRACKET,
+				"Could not find closing bracket:\t%10s [%.*s]",
 				lex_ttype_str(tok),
 				UNSLICE(parser_token_val(this, tok)));
 	}

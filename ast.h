@@ -14,6 +14,7 @@ static const char* ast_type_table[] = {
 	[AST_ERROR] = "error",
 	DANA_TYPES
 	DANA_KEYWORDS
+	[AST_SUB]  = "sub-op",
 	[AST_PROC] = "proc-call",
 	[AST_FUNC] = "func-call",
 	[AST_ARGS] = "args",
@@ -61,12 +62,12 @@ ast_node_print (const parser_t *this, ast_node_pos pos)
 	case AST_KW_CONT:
 		printf("(%s", ast_type_str(node));
 		if (node.mixed_data.tok.pos)
-			printf(" \"%.*s\"", UNSLICE(parser_get_name(this, node)));
+			printf(" \"%.*s\"", UNSLICE(parser_get_value(this, node.mixed_data.tok)));
 		printf(")");
 		break;
 	case AST_ASSIGN:
-		printf("(");    ast_node_print(this, node.bin_data.lhs);
-		printf(" := "); ast_node_print(this, node.bin_data.rhs);
+		printf("(assign "); ast_node_print(this, node.bin_data.lhs);
+		printf(" ");        ast_node_print(this, node.bin_data.rhs);
 		printf(")");
 		break;
 	case AST_ARGS:
@@ -81,7 +82,7 @@ ast_node_print (const parser_t *this, ast_node_pos pos)
 	case AST_PROC:
 	case AST_FUNC:
 		printf("(%s %.*s", ast_type_str(node),
-				UNSLICE(parser_get_name(this, node)));
+				UNSLICE(parser_get_value(this, node.mixed_data.tok)));
 		if (node.mixed_data.node.pos)
 			ast_node_print(this, node.mixed_data.node);
 		printf(")");
@@ -89,7 +90,7 @@ ast_node_print (const parser_t *this, ast_node_pos pos)
 	case AST_LOOP:
 		printf("(loop ");
 		if (node.mixed_data.tok.pos)
-			printf("\"%.*s\" ", UNSLICE(parser_get_name(this, node)));
+			printf("\"%.*s\" ", UNSLICE(parser_get_value(this, node.mixed_data.tok)));
 		ast_node_print(this, node.mixed_data.node);
 		printf(")");
 		break;
@@ -117,25 +118,17 @@ ast_node_print (const parser_t *this, ast_node_pos pos)
 		printf("%d", node.num_data.value);
 		break;
 	case AST_STRING:
-		printf("\"%.*s\"", UNSLICE(parser_get_name(this, node)));
+		printf("\"%.*s\"", UNSLICE(parser_get_value(this, node.lit_data.tok)));
 		break;
 	case AST_NAME:
-		printf("%.*s", UNSLICE(parser_get_name(this, node)));
-		if (node.mixed_data.node.pos) {
-			printf("["); ast_node_print(this, node.mixed_data.node);
-			printf("]");
-		}
+		printf("%.*s", UNSLICE(parser_get_value(this, node.lit_data.tok)));
+		break;
+	case AST_SUB:
+		ast_node_print(this, node.bin_data.lhs); printf("[");
+		ast_node_print(this, node.bin_data.rhs); printf("]");
 		break;
 	BOOLEAN:
 		printf(node.type == AST_KW_TRUE ? "TRUE" : "FALSE");
-		break;
-	case AST_OPEN_PAREN:
-		ast_node_print(this, node.bin_data.lhs); printf("(");
-		ast_node_print(this, node.bin_data.rhs); printf(")");
-		break;
-	case AST_OPEN_BRACKET:
-		ast_node_print(this, node.bin_data.lhs); printf("[");
-		ast_node_print(this, node.bin_data.rhs); printf("]");
 		break;
 	default:
 		if (bp_is_infix(node, NULL) || bp_is_prefix(node, NULL)) {

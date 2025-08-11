@@ -23,9 +23,7 @@ typedef struct {
 		AST_ERROR = 0,
 		DANA_TYPES
 		DANA_KEYWORDS
-		AST_PROC,
-		AST_FUNC,
-		AST_ARGS,
+		AST_PROC, AST_ARGS,
 		AST_TTYPE_LEN,
 	} type : 8;
 	union {
@@ -46,6 +44,9 @@ typedef struct {
 #undef KW
 #undef KW_EX
 
+#define AST_SUB  AST_OPEN_BRACKET
+#define AST_FUNC AST_OPEN_PAREN
+
 typedef struct {
 	lexer_t       lexer;  /* underlying lexer */
 	lex_token_t  *tokens; /* dynamic array of the tokens created by lexer */
@@ -61,8 +62,8 @@ extern void                   parser_destroy (const parser_t *this);
 /* parser methods */
 extern lex_token_t            parser_get_token (const parser_t *this, lex_token_pos pos);
 extern ast_node_t             parser_get_node (const parser_t *this, ast_node_pos pos);
+extern slice_char_t           parser_get_value (const parser_t *this, lex_token_pos pos);
 extern ast_node_pos           parser_get_extra (const parser_t *this, extra_pos pos);
-extern slice_char_t           parser_get_name (const parser_t *this, ast_node_t node);
 extern slice_char_t           parser_token_val (const parser_t *this, lex_token_t tok);
 extern struct ast_extra_data  parser_append_extras (parser_t *this, ast_node_pos *arr);
 extern lex_token_pos         _parser_next_token (parser_t *this);
@@ -140,6 +141,10 @@ parser_get_node (const parser_t *this, ast_node_pos pos)
 	return this->ast[pos.pos];
 }
 
+inline slice_char_t
+parser_get_value (const parser_t *this, lex_token_pos pos)
+{ return parser_token_val(this, parser_get_token(this, pos)); }
+
 ast_node_pos
 parser_get_extra (const parser_t *this, extra_pos pos)
 {
@@ -147,24 +152,6 @@ parser_get_extra (const parser_t *this, extra_pos pos)
 			"Extra %u out of bounds (%lu)",
 			pos.pos, arr_ulen(this->extra));
 	return this->extra[pos.pos];
-}
-
-slice_char_t
-parser_get_name (const parser_t *this, ast_node_t node)
-{
-	lex_token_t tok = parser_get_token(this, node.mixed_data.tok);
-	switch (node.type) {
-	AST_NAMED_NODE:
-		if (node.mixed_data.tok.pos)
-			return parser_token_val(this, tok);
-		else
-			return (slice_char_t){};
-	default:
-		_assert(false, "Requesting name of unnamed node: %10s [%.*s]",
-				lex_ttype_str(tok),
-				UNSLICE(parser_token_val(this, tok)));
-		return (slice_char_t){};
-	}
 }
 
 inline slice_char_t

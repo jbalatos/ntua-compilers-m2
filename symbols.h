@@ -90,8 +90,9 @@
 			case AST_NAME:     \
 			case AST_PROC:     \
 			case AST_FUNC
-#define LVALUE		case DANA_NAME:  \
-			case DANA_STRING
+#define LVALUE		case AST_NAME:   \
+			case AST_STRING: \
+			case AST_SUB
 #define CLOSING_OP 	case DANA_CLOSE_PAREN: \
 			case DANA_CLOSE_BRACKET
 #define BOOLEAN		case DANA_KW_TRUE:\
