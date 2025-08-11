@@ -72,7 +72,7 @@
 #define hm_gets(h, k) (hm_geti(h, k) == -1                  \
 		? (typeof(   *h   )){} : (h) + hm_tmp(h))
 #define hm_get(h, k)  (hm_geti(h, k) == -1                       \
-		? (typeof(h->value)){} : (h)[hm_tmp(h)].value)
+		? (typeof(h->value)){0} : (h)[hm_tmp(h)].value)
 #define hm_getp(h, k) (hm_geti(h, k) == -1 ? NULL : (h) + hm_tmp(h))
 
 #define hm_put(h, k, v) hm_puts(                           \
