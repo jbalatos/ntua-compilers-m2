@@ -24,6 +24,7 @@ typedef struct {
 		DANA_TYPES
 		DANA_KEYWORDS
 		AST_PROC,
+		AST_FUNC,
 		AST_ARGS,
 		AST_TTYPE_LEN,
 	} type : 8;

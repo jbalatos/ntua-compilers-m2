@@ -15,6 +15,7 @@ static const char* ast_type_table[] = {
 	DANA_TYPES
 	DANA_KEYWORDS
 	[AST_PROC] = "proc-call",
+	[AST_FUNC] = "func-call",
 	[AST_ARGS] = "args",
 };
 #undef OP
@@ -78,7 +79,9 @@ ast_node_print (const parser_t *this, ast_node_pos pos)
 		printf(")");
 		break;
 	case AST_PROC:
-		printf("(proc %.*s", UNSLICE(parser_get_name(this, node)));
+	case AST_FUNC:
+		printf("(%s %.*s", ast_type_str(node),
+				UNSLICE(parser_get_name(this, node)));
 		if (node.mixed_data.node.pos)
 			ast_node_print(this, node.mixed_data.node);
 		printf(")");

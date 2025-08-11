@@ -88,7 +88,8 @@
 			case AST_KW_CONT:  \
 			case AST_LOOP:     \
 			case AST_NAME:     \
-			case AST_PROC
+			case AST_PROC:     \
+			case AST_FUNC
 #define LVALUE		case DANA_NAME:  \
 			case DANA_STRING
 #define CLOSING_OP 	case DANA_CLOSE_PAREN: \

@@ -131,6 +131,10 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 		node = (ast_node_t){ .type = tok.type };
 		lhs = AST_APPEND(this, node);
 		break;
+	case DANA_CHAR:
+		node = (ast_node_t){ .type = AST_CHAR, .lit_data.tok = pos };
+		lhs = AST_APPEND(this, node);
+		break;
 	case DANA_NAME:
 		node = (ast_node_t){ .type = AST_NAME, .mixed_data.tok = pos };
 		lhs = AST_APPEND(this, node);
@@ -197,7 +201,8 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 						UNSLICE(parser_token_val(this, tok)));
 				break;
 			case DANA_OPEN_PAREN:
-				node.bin_data.rhs = _parse_expr(this, 0);
+				node.type = AST_FUNC;
+				node.bin_data.rhs = _parse_args(this);
 				_assert(NEXT_TOKEN(this, tok, pos).type == DANA_CLOSE_PAREN,
 						"No closing paren found: found [%s] |%.*s|",
 						lex_ttype_str(tok),
