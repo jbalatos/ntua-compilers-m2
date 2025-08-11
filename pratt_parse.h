@@ -6,7 +6,6 @@ _parse_cond (parser_t *this)
 	ast_node_t node = {
 		.type = AST_COND,
 	};
-	ast_node_pos npos;
 	lex_token_t tok;
 	lex_token_pos pos;
 	ast_node_pos *tmp = {0};
@@ -44,11 +43,8 @@ _parse_cond (parser_t *this)
 	}
 
 	node.extra_data = parser_append_extras(this, tmp);
-	printf("cond parsed: %10s\n", ast_type_str(node));
-	printf("---\n");
-	ast_node_print(this, (npos = AST_APPEND(this, node)));
-	printf("\n---\n");
-	return npos;
+	printf("cond END\n");
+	return AST_APPEND(this, node);
 }/* }}} */
 
 ast_node_pos
@@ -74,7 +70,7 @@ _parse_expr (parser_t *this, uint8_t min_bp)
 		lhs = AST_APPEND(this, node);
 		break;
 	case DANA_NAME:
-		node = (ast_node_t){ .type = AST_NAME, .name_data.tok = pos };
+		node = (ast_node_t){ .type = AST_NAME, .named_data.name = pos };
 		lhs = AST_APPEND(this, node);
 		break;
 	case DANA_NUMBER: {
@@ -179,6 +175,8 @@ _parse_stmt (parser_t *this)
 			UNSLICE(parser_token_val(this, tok)));
 
 	switch (PEEK_TOKEN(this, tok, pos).type) {
+	case DANA_KW_IF:
+		return _parse_cond(this);
 	case DANA_KW_SKIP:
 	case DANA_KW_EXIT:
 		POP_TOKEN(this, tok, pos);
@@ -203,11 +201,22 @@ _parse_stmt (parser_t *this)
 					"Expected name for break/cont, found:\t%s [%.*s]",
 					lex_ttype_str(tok),
 					UNSLICE(parser_token_val(this, tok)));
-			node.name_data.tok = pos;
+			node.named_data.name = pos;
 		}
 		break;
-	case DANA_KW_IF:
-		return _parse_cond(this);
+	case DANA_KW_LOOP:
+		POP_TOKEN(this, tok, pos);
+		node = (ast_node_t){ .type = AST_LOOP };
+		if (PEEK_TOKEN(this, tok, pos).type == DANA_NAME) {
+			POP_TOKEN(this, tok, pos);
+			node.named_data.name = pos;
+		}
+		_assert(NEXT_TOKEN(this, tok, pos).type == DANA_COLON,
+				"Wrong token after loop definition:\t%s [%.*s]",
+				lex_ttype_str(tok),
+				UNSLICE(parser_token_val(this, tok)));
+		node.named_data.block = _parse_block(this);
+		break;
 	default:
 		_assert(false, "Unknown token in stmt:\t%s [%.*s]",
 				lex_ttype_str(tok),

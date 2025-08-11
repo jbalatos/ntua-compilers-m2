@@ -57,10 +57,15 @@ ast_node_print (const parser_t *this, ast_node_pos pos)
 	case AST_KW_BREAK:
 	case AST_KW_CONT:
 		printf("(%s", ast_type_str(node));
-		if (node.name_data.tok.pos)
-			printf(" \"%.*s\"", UNSLICE(parser_token_val( this,
-						parser_get_token(this, node.name_data.tok)
-						)));
+		if (node.named_data.name.pos)
+			printf(" \"%.*s\"", UNSLICE(parser_get_name(this, node)));
+		printf(")");
+		break;
+	case AST_LOOP:
+		printf("(loop ");
+		if (node.named_data.name.pos)
+			printf("\"%.*s\" ", UNSLICE(parser_get_name(this, node)));
+		ast_node_print(this, node.named_data.block);
 		printf(")");
 		break;
 	case AST_COND:
@@ -87,8 +92,7 @@ ast_node_print (const parser_t *this, ast_node_pos pos)
 		printf("%d", node.pl_data.value);
 		break;
 	case AST_NAME:
-		printf("%.*s", UNSLICE(parser_token_val(this,
-						parser_get_token(this, node.name_data.tok))));
+		printf("%.*s", UNSLICE(parser_get_name(this, node)));
 		break;
 	BOOLEAN:
 		printf(node.type == AST_KW_TRUE ? "TRUE" : "FALSE");

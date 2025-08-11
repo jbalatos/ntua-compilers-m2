@@ -49,7 +49,7 @@
 	KW_EX(IF,	SIMPLE_COND,	"if")				\
 	KW   (IS,			"is")				\
 	KW   (INT,			"int")				\
-	KW   (LOOP,			"loop")				\
+	KW_EX(LOOP,	LOOP,		"loop")				\
 	KW   (REF,			"ref")				\
 	KW   (RETURN,			"return")			\
 	KW   (SKIP,			"skip")				\
@@ -84,6 +84,10 @@
 	POST(OPEN_PAREN,	9)			/* groupings */ \
 	POST(OPEN_BRACKET,	9)					\
 
+#define AST_NAMED_NODE	case AST_KW_BREAK: \
+			case AST_KW_CONT:  \
+			case AST_LOOP:     \
+			case AST_NAME
 #define CLOSING_OP 	case DANA_CLOSE_PAREN: \
 			case DANA_CLOSE_BRACKET
 #define BOOLEAN		case DANA_KW_TRUE:\

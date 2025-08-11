@@ -26,11 +26,21 @@ typedef struct {
 		AST_TTYPE_LEN,
 	} type : 8;
 	union {
-		struct ast_bin_data { ast_node_pos lhs, rhs; } bin_data;
-		struct ast_pl_data { uint32_t value; } pl_data;
-		struct ast_name_data { lex_token_pos tok; } name_data;
-		struct ast_extra_data { uint32_t length; extra_pos pos; } extra_data;
-		struct ast_if_data { ast_node_pos cond, body; } if_data;
+		struct ast_bin_data {
+			ast_node_pos lhs, rhs;
+		} bin_data;
+		struct ast_pl_data {
+			uint32_t value;
+		} pl_data;
+		struct ast_named_data {
+			lex_token_pos name; ast_node_pos block;
+		} named_data;
+		struct ast_extra_data {
+			uint32_t length; extra_pos pos;
+		} extra_data;
+		struct ast_if_data {
+			ast_node_pos cond, body;
+		} if_data;
 	};
 } ast_node_t;
 #undef OP
@@ -55,6 +65,7 @@ extern void                   parser_destroy (const parser_t *this);
 extern lex_token_t            parser_get_token (const parser_t *this, lex_token_pos pos);
 extern ast_node_t             parser_get_node (const parser_t *this, ast_node_pos pos);
 extern ast_node_pos           parser_get_extra (const parser_t *this, extra_pos pos);
+extern slice_char_t           parser_get_name (const parser_t *this, ast_node_t node);
 extern slice_char_t           parser_token_val (const parser_t *this, lex_token_t tok);
 extern struct ast_extra_data  parser_append_extras (parser_t *this, ast_node_pos *arr);
 extern lex_token_pos         _parser_next_token (parser_t *this);
@@ -136,6 +147,24 @@ parser_get_extra (const parser_t *this, extra_pos pos)
 			"Extra %u out of bounds (%lu)",
 			pos.pos, arr_ulen(this->extra));
 	return this->extra[pos.pos];
+}
+
+slice_char_t
+parser_get_name (const parser_t *this, ast_node_t node)
+{
+	lex_token_t tok = parser_get_token(this, node.named_data.name);
+	switch (node.type) {
+	AST_NAMED_NODE:
+		if (node.named_data.name.pos)
+			return parser_token_val(this, tok);
+		else
+			return (slice_char_t){};
+	default:
+		_assert(false, "Requesting name of unnamed node: %10s [%.*s]",
+				lex_ttype_str(tok),
+				UNSLICE(parser_token_val(this, tok)));
+		return (slice_char_t){};
+	}
 }
 
 inline slice_char_t
