@@ -1,8 +1,8 @@
 CFLAGS=-Wall -g -std=gnu11 -D_XOPEN_SOURCE=700
-SRC = test.c
-DIST = test
+SRC = main.c
+DIST = main
 
-test:
+main:
 
 include $(SRC:.c=.d)
 
