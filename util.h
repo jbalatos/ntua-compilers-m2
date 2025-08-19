@@ -11,7 +11,7 @@
 			abort();                                            \
 		}                                                          })
 
-#define POS_DECL(name, bits) typedef struct { uint32_t pos: bits; } name
+#define POS_DECL(name, bits) typedef struct __attribute__((packed)) { uint32_t pos: bits; } name
 #define POS_ADV(p, x) ((typeof(p)){ (p).pos + x })
 #define POS_DIFF(a, b) ((b).pos - (a).pos)
 #define POS_CMP(a, b) ((int32_t)(a).pos - (int32_t)(b).pos)

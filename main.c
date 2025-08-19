@@ -15,6 +15,20 @@ const char fname[] = "sample.dana";
 int main (int argc, char *argv[argc])
 {
 
+	printf("---DEBUG INFO (%lu):---\n", sizeof(uint8_t));
+	printf("\tLEXER:\r");
+	printf("\t\t lexer_t size: %lu\n", sizeof(lexer_t));
+	printf("\t\t lex_token_t size: %lu\n", sizeof(lex_token_t));
+	printf("\t\t lex_buf_pos size: %lu\n", sizeof(lex_buf_pos));
+	printf("\t\t lex_ttype length: %u\n", LEX_TTYPE_LEN);
+	printf("\tPARER:\r");
+	printf("\t\t parser_t size: %lu\n", sizeof(parser_t));
+	printf("\t\t ast_node_t size: %lu\n", sizeof(ast_node_t));
+	printf("\t\t ast_extra_data size: %lu\n", sizeof(struct ast_bin_data));
+	printf("\t\t ast_ttype size: %lu\n", sizeof(enum ast_ttype));
+	printf("\t\t ast_ttype length: %u\n", AST_TTYPE_LEN);
+	printf("---DEBUG END---\n\n");
+
 	// LEXER_CLEANUP lexer = lexer_create(&LIBC, fname);
 	// lex_token_t tok = lex_next_token(&lexer, NULL);
 	// for (; tok.type != DANA_EOF; tok = lex_next_token(&lexer, &tok)) {
