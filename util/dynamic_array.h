@@ -88,9 +88,9 @@
 #define hm_del(h, k) (hm_del_int((void*)(h), hm_hash(k),            \
 			hm_hash(arr_back(h).key), sizeof(*h)) == -1 \
 			? 0 : arr_swapdel(h, hm_tmp(h))             )
-#define hm_free(h) ((void)(              \
-	free(arr_header(h)->hash_table), \
-	free(arr_header(h))             ))
+#define hm_free(h) ((void)((h)                                                  \
+			? (free(arr_header(h)->hash_table),free(arr_header(h))) \
+			: (0)                                                  ))
 
 // }}}
 
@@ -179,21 +179,14 @@ static size_t hm_seed = 0x31415926;
 				arr_header(h)->hash_table[__tmp__].index, \
 				arr_header(h)->hash_table[__tmp__].dist); \
 		if (arr_header(h)->hash_table[__tmp__].hash) { \
-			log(" ==> (%p %s: ", \
-				(h)[arr_header(h)->hash_table[__tmp__].index].key, \
-				(h)[arr_header(h)->hash_table[__tmp__].index].key); \
-			expr_value_print((h)[arr_header(h)->hash_table[__tmp__].index].value); \
+			log(" ==> (%u: %s", \
+				(h)[arr_header(h)->hash_table[__tmp__].index].key \
+				(h)[arr_header(h)->hash_table[__tmp__].index].value); \
 			log(")"); \
 		} \
 		log("\n"); \
 	} \
 	log("-----\n"); \
-	for (size_t __tmp__ = 0; __tmp__ < hm_ulen(h); ++__tmp__) { \
-		log("\t('%s': ", (h)[__tmp__].key); \
-		expr_value_print((h)[__tmp__].value); \
-		log(")"); \
-		log("\n"); \
-	} \
 } while (0)
 
 size_t __attribute__((unused))
