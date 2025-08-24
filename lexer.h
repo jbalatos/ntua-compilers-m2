@@ -4,42 +4,52 @@
 #include <ctype.h>
 #include <stdio.h>
 #include "symbols.h"
+#include "types.h"
 #include "util.h"
 #include "util/alloc.h"
 #include "util/dynamic_array.h"
 
 #define LEX_SPACES_PER_TAB 4
 
-typedef slice(char) slice_char_t;
-
-typedef struct {
+struct lexer_t {
 	slice_char_t buffer;
 	const alloc_t *alloc;
 	const char *fname;
-} lexer_t;
+};
 
-POS_DECL(lex_buf_pos, 24);
+#define OP_LEX(l, s) DANA_    ## l,
+#define TK_LEX(l, s) DANA_    ## l,
+#define LT_LEX(l, s) DANA_    ## l,
+#define KW_LEX(l, s) DANA_KW_ ## l,
+#define OP(l, p, s) OP_LEX(l, s)
+#define TK(l, p, s) TK_LEX(l, s)
+#define LT(l, p, s) LT_LEX(l, s)
+#define KW(l, p, s) KW_LEX(l, s)
+/* just for alignment between lex_type and ast_type */
+#define LT_PAR(p, s) DANA_UNUSED_ ## p,
+#define KW_PAR(p, s) DANA_UNUSED_KW_ ## p,
 
-#define OP(e,...) DANA_    ## e,
-#define TK(e,...) DANA_    ## e,
-#define LIT(e)    DANA_    ## e,
-#define KW(e,...) DANA_KW_ ## e,
-#define KW_EX     KW
-typedef struct {
-	enum lex_ttype {
+struct lex_token_t {
+	enum lex_type {
 		DANA_ERROR = 0,
 		DANA_TYPES
 		DANA_KEYWORDS
 		DANA_COMMENT,
-		LEX_TTYPE_LEN,
+		LEX_TYPES_LEN,
 	} type : 8;
 	lex_buf_pos pos;
-} lex_token_t;
+};
+
+#undef OP_LEX
+#undef TK_LEX
+#undef LT_LEX
+#undef KW_LEX
 #undef OP
 #undef TK
-#undef LIT
+#undef LT
 #undef KW
-#undef KW_EX
+#undef LT_PAR
+#undef KW_PAR
 
 /* lexer_t init */
 #define LEXER_CLEANUP lexer_t \
@@ -52,8 +62,8 @@ extern char           _lex_read_char (const lexer_t *this, lex_buf_pos pos);
 extern slice_char_t   _lex_read_str (const lexer_t *this, lex_buf_pos pos, uint32_t length);
 extern bool           _lex_matches (const lexer_t *this, lex_buf_pos pos, const char *str);
 /* symbol table */
-extern const char*     lex_ttype_str (lex_token_t tok);
-extern enum lex_ttype _lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len);
+extern const char*     lex_get_type_str (lex_token_t tok);
+extern enum lex_type _lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len);
 /* tokenizer */
 extern lex_token_t     lex_next_token (const lexer_t *this, const lex_token_t *prev);
 extern slice_char_t    lex_get_token (const lexer_t *this, lex_token_t tok);
@@ -137,24 +147,36 @@ void lex_temp_cleanup (lex_temp_t *this) { *this->ptr = this->backup; }
 
 /** symbol table */
 /* {{{ */
-static struct { const char *key; enum lex_ttype value; } *lex_symbol_table;
+static struct { const char *key; enum lex_type value; } *lex_symbol_table;
 
-#define OP(e, s) [DANA_    ## e] = s,
-#define TK(e, s) [DANA_    ## e] = s,
-#define LIT(e)   [DANA_    ## e] = #e,
-#define KW(e, s) [DANA_KW_ ## e] = s,
-#define KW_EX(e, al, s) KW(e, s)
+#define OP_LEX(l, s) [DANA_    ## l] = s,
+#define TK_LEX(l, s) [DANA_    ## l] = s,
+#define KW_LEX(l, s) [DANA_KW_ ## l] = s,
+#define LT_LEX(l, s)
+#define LT_PAR(p, s)
+#define KW_PAR(p, s)
+#define OP(l, p, s) OP_LEX(l, s)
+#define TK(l, p, s) TK_LEX(l, s)
+#define LT(l, p, s) LT_LEX(l, s)
+#define KW(l, p, s) KW_LEX(l, s)
+
 static const char* lex_symbol_arr[] = {
-	[DANA_ERROR] = "",
+	[DANA_ERROR] = NULL,
 	DANA_TYPES
 	DANA_KEYWORDS
-	[DANA_COMMENT] = "",
+	[DANA_COMMENT] = NULL,
 };
+
+#undef OP_LEX
+#undef TK_LEX
+#undef LT_LEX
+#undef KW_LEX
+#undef LT_PAR
+#undef KW_PAR
 #undef OP
 #undef TK
-#undef LIT
+#undef LT
 #undef KW
-#undef KW_EX
 
 void __attribute__((constructor))
 create_lex_symbol_table (void)
@@ -171,10 +193,10 @@ destroy_lex_symbol_table (void)
 }
 
 const char*
-lex_token_type (lex_token_t tok)
+lex_get_type_str (lex_token_t tok)
 { return lex_symbol_arr[tok.type]; }
 
-enum lex_ttype
+enum lex_type
 _lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len)
 {
 	slice_char_t sl = _lex_read_str(this, pos, len);
@@ -219,7 +241,8 @@ _lex_scan_char (const lexer_t *this, lex_buf_pos pos)
 {
 	lex_buf_pos closing = POS_ADV(pos, 2);
 
-	if (_lex_read_char(this, POS_ADV(pos, 1)) == '\'') return closing;
+	_assert(_lex_read_char(this, POS_ADV(pos, 1)) != '\'',
+			"Char literal cannot be empty");
 	if (_lex_read_char(this, POS_ADV(pos, 1)) == '\\')
 		switch (_lex_read_char(this, POS_ADV(pos, 2))) {
 		case 'n':
@@ -242,7 +265,7 @@ lex_token_t
 _lex_token_at (const lexer_t *this, lex_buf_pos pos)
 {
 	lex_buf_pos end;
-	enum lex_ttype kword;
+	enum lex_type kword;
 
 	if (_lex_matches(this, pos, "(*"))
 		return (lex_token_t){ DANA_COMMENT, pos };
@@ -314,13 +337,9 @@ _lex_token_end (const lexer_t *this, lex_token_t tok)
 		for (++end.pos; isiden(_lex_read_char(this, end)); ++end.pos);
 		return end;
 	default: /* operator */
-		return POS_ADV(end, strlen(lex_ttype_str(tok)));
+		return POS_ADV(end, strlen(lex_get_type_str(tok)));
 	}
 }
-
-inline const char*
-lex_ttype_str (lex_token_t tok)
-{ return lex_symbol_arr[tok.type]; }
 
 inline slice_char_t
 lex_token_val (const lexer_t *this, lex_token_t tok)

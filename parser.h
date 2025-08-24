@@ -1,113 +1,57 @@
 #pragma once
 
-#include <stdio.h>
+#include "bind_power.h"
 #include "lexer.h"
+#include "types.h"
+#include "util.h"
 #include "util/dynamic_array.h"
 
-#ifndef _assert
-	#define _assert(cond, fmt, ...) \
-		assert(cond && "ASSERT\t%s:%d\t" fmt, __FILE__, __LINE__)
-#endif
-
-POS_DECL(ast_node_pos, 24);
-POS_DECL(lex_token_pos, 24);
-POS_DECL(extra_pos, 24);
-
-#define OP(e, s) AST_    ## e,
-#define TK(e, s) AST_    ## e,
-#define LIT(e)   AST_    ## e,
-#define KW(e, s) AST_KW_ ## e,
-#define KW_EX(e, al, s) LIT(al)
-typedef struct {
-	enum ast_ttype {
-		AST_ERROR = 0,
-		DANA_TYPES
-		DANA_KEYWORDS
-		AST_PROC, AST_ARGS,
-		AST_TTYPE_LEN,
-	} type : 8;
-	union {
-		struct ast_num_data { uint32_t value; } num_data; /* number */
-		struct ast_lit_data { lex_token_pos tok; } lit_data; /* string / char */
-		struct ast_bin_data { ast_node_pos lhs, rhs; } bin_data; /* binop */
-		struct ast_mixed_data {
-			lex_token_pos tok; ast_node_pos node;
-		} mixed_data; /* nodes with token (and opt. node) data */
-		struct ast_extra_data {
-			uint32_t length; extra_pos pos;
-		} extra_data; /* nodes with data in parser::extra */
-	};
-} ast_node_t;
-#undef OP
-#undef TK
-#undef LIT
-#undef KW
-#undef KW_EX
-
-#define AST_SUB  AST_OPEN_BRACKET
-#define AST_FUNC AST_OPEN_PAREN
-
-typedef struct {
+struct parser_t {
 	lexer_t       lexer;  /* underlying lexer */
 	lex_token_t  *tokens; /* dynamic array of the tokens created by lexer */
 	lex_token_t  *last;   /* pointer to last element of tokens */
 	ast_node_t   *ast;    /* dynamic array of the AST nodes */
 	ast_node_pos *extra;  /* dynamic array of slices of AST indices, used by
 				 specific node types */
-} parser_t;
+	char         *text;   /* dynamic array of const strings (0-terminated) */
+	struct { uint32_t key; lex_token_pos value; } *names;
+				/* hash map matching name ID => name position */
+};
 
 #define PARSER_CLEANUP parser_t __attribute__((cleanup(parser_destroy)))
-extern parser_t               parser_create (const alloc_t *alloc, const char *fname);
+extern parser_t               parser_create (const lexer_t lexer);
 extern void                   parser_destroy (const parser_t *this);
 /* parser methods */
-extern lex_token_t            parser_get_token (const parser_t *this, lex_token_pos pos);
-extern ast_node_t             parser_get_node (const parser_t *this, ast_node_pos pos);
-extern slice_char_t           parser_get_value (const parser_t *this, lex_token_pos pos);
-extern ast_node_pos           parser_get_extra (const parser_t *this, extra_pos pos);
-extern slice_char_t           parser_token_val (const parser_t *this, lex_token_t tok);
-extern struct ast_extra_data  parser_append_extras (parser_t *this, ast_node_pos *arr);
-extern lex_token_pos         _parser_next_token (parser_t *this);
-extern lex_token_pos         _parser_peek_token (parser_t *this);
+extern const lex_token_t      parser_get_token (const parser_t *this, lex_token_pos pos);
+extern const ast_node_t       parser_get_node (const parser_t *this, ast_node_pos pos);
+extern const ast_node_pos     parser_get_extra (const parser_t *this, extra_pos pos);
+extern const char*            parser_get_text (const parser_t *this, text_pos pos);
+extern slice_char_t           parser_get_name (const parser_t *this, size_t hash);
+extern slice_char_t           parser_get_value_by_tok (const parser_t *this, lex_token_t tok);
+extern slice_char_t           parser_get_value_by_pos (const parser_t *this, lex_token_pos pos);
+extern ast_extra_data         parser_append_extras (parser_t *this, ast_node_pos *arr);
+extern text_pos               parser_append_text (parser_t *this, lex_token_t tok);
 extern lex_token_pos         _parser_pop_token (parser_t *this);
 /* pratt parser */
-extern ast_node_pos          _parse_args (parser_t *this);
-extern ast_node_pos          _parse_block (parser_t *this);
-extern ast_node_pos          _parse_cond (parser_t *this);
-extern ast_node_pos          _parse_expr (parser_t *this, uint8_t min_bp);
-extern ast_node_pos          _parse_lval (parser_t *this);
-extern ast_node_pos          _parse_stmt (parser_t *this);
-extern ast_node_pos           parser_parse (parser_t *this);
+extern ast_node_pos           parse (parser_t *this);
 
-#define PEEK_TOKEN(prs, tok, pos) ({                     \
-		(pos) = _parser_peek_token((prs));       \
-		(tok) = parser_get_token((prs), (pos)); })
-#define NEXT_TOKEN(prs, tok, pos) ({                     \
-		(pos) = _parser_next_token((prs));       \
-		(tok) = parser_get_token((prs), (pos)); })
-#define POP_TOKEN(prs, tok, pos) ({                      \
-		(pos) = _parser_pop_token((prs));        \
-		(tok) = parser_get_token((prs), (pos)); })
-#define AST_APPEND(prs, node) ({                            \
-		arr_push((prs)->ast, (node));               \
-		(ast_node_pos){ arr_ulen((prs)->ast) - 1}; })
-
-#ifdef PARSER_IMPLEMENT
-	#define BP_IMPLEMENT
-	#define AST_IMPLEMENT
-#endif
-#include "bind_power.h"
 #include "ast.h"
 
 #ifdef PARSER_IMPLEMENT
-/** parser destructor */
+/** private method definitions */
+extern lex_token_pos _parser_next_token (parser_t *this);
+extern lex_token_pos _parser_peek_token (parser_t *this);
+
+/** parser constructor - destructor */
 /* {{{ */
 parser_t
-parser_create (const alloc_t *alloc, const char *fname)
+parser_create (const lexer_t lexer)
 {
-	parser_t ret = { .lexer = lexer_create(alloc, fname) };
+	parser_t ret = { .lexer = lexer };
 	arr_push(ret.ast, (ast_node_t){});
 	arr_push(ret.tokens, (lex_token_t){});
 	arr_push(ret.extra, (ast_node_pos){});
+	arr_push(ret.text, '\0');
 	return ret;
 }
 
@@ -117,13 +61,15 @@ parser_destroy (const parser_t *this)
 	arr_free(this->tokens);
 	arr_free(this->ast);
 	arr_free(this->extra);
+	arr_free(this->text);
+	hm_free(this->names);
 	lexer_destroy(&this->lexer);
 }
 /* }}} */
 
 /** parser methods */
 /* {{{ */
-lex_token_t
+const lex_token_t
 parser_get_token (const parser_t *this, lex_token_pos pos)
 {
 	_assert(pos.pos < arr_ulen(this->tokens),
@@ -132,7 +78,7 @@ parser_get_token (const parser_t *this, lex_token_pos pos)
 	return this->tokens[pos.pos];
 }
 
-ast_node_t
+const ast_node_t
 parser_get_node (const parser_t *this, ast_node_pos pos)
 {
 	_assert(pos.pos < arr_ulen(this->ast),
@@ -141,11 +87,7 @@ parser_get_node (const parser_t *this, ast_node_pos pos)
 	return this->ast[pos.pos];
 }
 
-inline slice_char_t
-parser_get_value (const parser_t *this, lex_token_pos pos)
-{ return parser_token_val(this, parser_get_token(this, pos)); }
-
-ast_node_pos
+const ast_node_pos
 parser_get_extra (const parser_t *this, extra_pos pos)
 {
 	_assert(pos.pos < arr_ulen(this->extra),
@@ -154,14 +96,35 @@ parser_get_extra (const parser_t *this, extra_pos pos)
 	return this->extra[pos.pos];
 }
 
-inline slice_char_t
-parser_token_val (const parser_t *this, lex_token_t tok)
-{ return lex_token_val(&this->lexer, tok); }
+const char*
+parser_get_text (const parser_t *this, text_pos pos)
+{
+	_assert(pos.pos < arr_ulen(this->text),
+			"Text %u out of bounds (%lu)",
+			pos.pos, arr_ulen(this->text));
+	return this->text + pos.pos;
+}
 
-struct ast_extra_data
+inline slice_char_t
+parser_get_name (const parser_t *this, size_t hash)
+{ return  parser_get_value_by_pos(this, hm_get(this->names, hash)); }
+
+inline slice_char_t
+parser_get_value_by_tok (const parser_t *this, lex_token_t tok)
+{
+	return lex_token_val(&this->lexer, tok);
+}
+
+inline slice_char_t
+parser_get_value_by_pos (const parser_t *this, lex_token_pos pos)
+{
+	return parser_get_value_by_tok(this, parser_get_token(this, pos));
+}
+
+ast_extra_data
 parser_append_extras (parser_t *this, ast_node_pos *arr)
 {
-	struct ast_extra_data ret = {
+	ast_extra_data ret = {
 		.length = arr_ulen(arr),
 		.pos = { arr_ulen(this->extra) },
 	};
@@ -192,6 +155,20 @@ _parser_peek_token (parser_t *this)
 	return (lex_token_pos){ arr_ulen(this->tokens) - 1 };
 }
 
+text_pos
+parser_append_text (parser_t *this, lex_token_t tok)
+{
+	slice_char_t sl = parser_get_value_by_tok(this, tok);
+	text_pos ret = {0};
+
+	if (!sl.length) return ret;
+	ret.pos = arr_ulen(this->text);
+	for (uint32_t i=0; i<sl.length; ++i)
+		arr_push(this->text, sl.ptr[i]);
+	arr_push(this->text, '\0');
+	return ret;
+}
+
 lex_token_pos
 _parser_pop_token (parser_t *this)
 {
@@ -201,12 +178,10 @@ _parser_pop_token (parser_t *this)
 }
 /* }}} */
 
-/** pratt parser */
-#include "pratt_parse.h"
+/** parsing functions */
+#include "pratt_parser.c"
 
-ast_node_pos
-parser_parse (parser_t *this)
-{
-	return _parse_block(this);
-}
+inline ast_node_pos
+parse (parser_t *this)
+{ return _parse_var(this, true); }
 #endif // PARSER_IMPLEMENT

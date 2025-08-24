@@ -3,9 +3,11 @@
 
 #define ALLOC_IMPLEMENT
 #include "util/alloc.h"
-#define LEX_IMPLEMENT
+
+#define BP_IMPLEMENT
 #define DA_IMPLEMENT
-#include "lexer.h"
+#define LEX_IMPLEMENT
+#define AST_IMPLEMENT
 #define PARSER_IMPLEMENT
 #include "parser.h"
 
@@ -20,26 +22,25 @@ int main (int argc, char *argv[argc])
 	printf("\t\t lexer_t size: %lu\n", sizeof(lexer_t));
 	printf("\t\t lex_token_t size: %lu\n", sizeof(lex_token_t));
 	printf("\t\t lex_buf_pos size: %lu\n", sizeof(lex_buf_pos));
-	printf("\t\t lex_ttype length: %u\n", LEX_TTYPE_LEN);
+	printf("\t\t lex_types length: %u\n", LEX_TYPES_LEN);
 	printf("\tPARER:\r");
 	printf("\t\t parser_t size: %lu\n", sizeof(parser_t));
 	printf("\t\t ast_node_t size: %lu\n", sizeof(ast_node_t));
-	printf("\t\t ast_extra_data size: %lu\n", sizeof(struct ast_bin_data));
-	printf("\t\t ast_ttype size: %lu\n", sizeof(enum ast_ttype));
-	printf("\t\t ast_ttype length: %u\n", AST_TTYPE_LEN);
+	printf("\t\t ast_ttype size: %lu\n", sizeof(enum ast_type));
+	printf("\t\t ast_ttype length: %u\n", AST_TYPES_LEN);
 	printf("---DEBUG END---\n\n");
 
 	// LEXER_CLEANUP lexer = lexer_create(&LIBC, fname);
 	// lex_token_t tok = lex_next_token(&lexer, NULL);
 	// for (; tok.type != DANA_EOF; tok = lex_next_token(&lexer, &tok)) {
 		// printf("%3u: %10s\t\t%20.*s\t\t(%u @ %p)\n",
-				// tok.pos.pos, lex_token_type(tok),
+				// tok.pos.pos, lex_get_type_str(tok),
 				// UNSLICE(lex_token_val(&lexer, tok)),
 				// UNSLICE(lex_token_val(&lexer, tok)));
 	// }
 
-	PARSER_CLEANUP parser = parser_create(&LIBC, fname);
-	ast_node_pos root = parser_parse(&parser);
+	PARSER_CLEANUP parser = parser_create(lexer_create(&LIBC, fname));
+	ast_node_pos root = parse(&parser);
 	ast_node_print(&parser, root);
 
 	return 0;

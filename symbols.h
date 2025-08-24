@@ -1,62 +1,73 @@
 #pragma once
 
-#define DANA_TYPES					\
-	OP(PLUS,		"+")	/* math */	\
-	OP(MINUS,		"-")			\
-	OP(MULT,		"*")			\
-	OP(DIV,			"/")			\
-	OP(MOD,			"%")			\
-	OP(AND,			"&")	/* bitwise */	\
-	OP(OR,			"|")			\
-	OP(NOT,			"!")			\
-	OP(EQ,			"=")	/* compare */	\
-	OP(NEQ,			"<>")			\
-	OP(LT,			"<")			\
-	OP(LEQ,			"<=")			\
-	OP(GT,			">")			\
-	OP(GEQ,			">=")			\
-	OP(OPEN_PAREN,		"(")	/* dividers */	\
-	OP(CLOSE_PAREN,		")")			\
-	OP(OPEN_BRACKET,	"[")			\
-	OP(CLOSE_BRACKET,	"]")			\
-	TK(COMMA,		",")			\
-	TK(COLON,		":")			\
-	TK(ASSIGN,		":=")			\
-	LIT(OPEN_INDENT)				\
-	LIT(CLOSE_INDENT)				\
-	LIT(NAME)					\
-	LIT(NUMBER)					\
-	LIT(CHAR)					\
-	LIT(STRING)					\
-	LIT(EOF)
+#define DANA_TYPES							\
+	/* 	LEX NAME	AST NAME	SYMBOL */		\
+	OP	(PLUS,		PLUS,		"+")	/* math */	\
+	OP	(MINUS,		MINUS,		"-")			\
+	OP	(MULT,		MULT,		"*")			\
+	OP	(DIV,		DIV,		"/")			\
+	OP	(MOD,		MOD,		"%")			\
+	OP	(AND,		BIT_AND,	"&")	/* bitwise */	\
+	OP	(OR,		BIT_OR,		"|")			\
+	OP	(NOT,		BIT_NOT,	"!")			\
+	OP	(EQ,		CMP_EQ,		"=")	/* compare */	\
+	OP	(NEQ,		CMP_NEQ,	"<>")			\
+	OP	(LT,		CMP_LT,		"<")			\
+	OP	(LEQ,		CMP_LEQ,	"<=")			\
+	OP	(GT,		CMP_GT,		">")			\
+	OP	(GEQ,		CMP_GEQ,	">=")			\
+	OP	(OPEN_PAREN,	FUNC,		"(")	/* dividers */	\
+	OP	(CLOSE_PAREN,	ARGS,		")")			\
+	OP	(OPEN_BRACKET,	ARR_AT,		"[")			\
+	OP_LEX	(CLOSE_BRACKET,			"]")			\
+	TK_LEX	(COMMA,				",")			\
+	TK	(COLON,		PROC,		":")			\
+	TK	(ASSIGN,	ASSIGN,		":=")			\
+	LT_LEX	(OPEN_INDENT,			"TAB-BEGIN")		\
+	LT_LEX	(CLOSE_INDENT,			"TAB-END")		\
+	LT	(NAME,		NAME,		"name")			\
+	LT	(NUMBER,	NUMBER,		"number")		\
+	LT	(CHAR,		CHAR,		"char")			\
+	LT	(STRING,	STRING,		"string")		\
+	LT_PAR	(		BOOL,		"boolean")		\
+	LT_PAR	(		REF_INT,	"int-ref")		\
+	LT_PAR	(		REF_BYTE,	"byte-ref")		\
+	LT_PAR	(		ARR_INT,	"int-array")		\
+	LT_PAR	(		ARR_BYTE,	"byte-array")		\
+	LT_LEX	(EOF,				"EOF")			\
 
 #define DANA_KEYWORDS \
-	KW    (AND,			"and")	/* op keywords */	\
-	KW    (OR,			"or")				\
-	KW    (NOT,			"not")				\
-	KW    (AS,			"as")				\
-	KW_EX(BEGIN,	BLOCK,		"begin")/* non-op keywords */	\
-	KW   (BREAK,			"break")			\
-	KW   (BYTE,			"byte")				\
-	KW   (CONT,			"continue")			\
-	KW   (DECL,			"decl")				\
-	KW   (DEF,			"def")				\
-	KW_EX(ELIF,	COND,		"elif")				\
-	KW   (ELSE,			"else")				\
-	KW_EX(END,	SIMPLE_BLOCK,	"end")				\
-	KW   (EXIT,			"exit")				\
-	KW   (FALSE,			"false")			\
-	KW_EX(IF,	SIMPLE_COND,	"if")				\
-	KW   (IS,			"is")				\
-	KW   (INT,			"int")				\
-	KW_EX(LOOP,	LOOP,		"loop")				\
-	KW   (REF,			"ref")				\
-	KW   (RETURN,			"return")			\
-	KW   (SKIP,			"skip")				\
-	KW   (TRUE,			"true")				\
-	KW   (VAR,			"var")				\
+	/* 	LEX NAME	AST NAME	SYMBOL */		\
+	KW	(AND,		BOOL_AND,	"and")	/* bool ops */	\
+	KW	(OR,		BOOL_OR,	"or")			\
+	KW	(NOT,		BOOL_NOT,	"not")			\
+	KW_LEX	(AS,				"as")			\
+	KW	(BEGIN,		BLOCK,		"begin")/* blocks */	\
+	KW	(END,		BLOCK_SIMPLE,	"end")			\
+	KW	(IF,		COND_SIMPLE,	"if")			\
+	KW	(ELIF,		COND,		"elif")			\
+	KW_LEX	(ELSE,				"else")			\
+	KW	(LOOP,		LOOP,		"loop")			\
+	KW	(SKIP,		SKIP,		"skip")	/* simple ops */\
+	KW	(EXIT,		EXIT,		"exit")			\
+	KW	(BREAK,		BREAK,		"break")		\
+	KW	(CONT,		CONT,		"continue")		\
+	KW	(RETURN,	RETURN,		"return")		\
+	KW_LEX	(VAR,				"var")	/* vars */	\
+	KW_LEX	(REF,				"ref")			\
+	KW	(INT,		INT,		"int")			\
+	KW	(BYTE,		BYTE,		"byte")			\
+	KW_LEX	(TRUE,				"true")			\
+	KW_LEX	(FALSE,				"false")		\
+	KW_LEX	(IS,				"is")			\
+	KW	(DECL,		PROC_DECL,	"decl")	/* funcs */	\
+	KW	(DEF,		PROC_DEF,	"def")			\
+	KW_PAR	(		FUNC_INT_DECL,	"int-decl")		\
+	KW_PAR	(		FUNC_BYTE_DECL,	"byte-decl")		\
+	KW_PAR	(		FUNC_INT_DEF,	"int-def")		\
+	KW_PAR	(		FUNC_BYTE_DEF,	"byte-def")		\
 
-#define DANA_KW case DANA_KW_AND ... DANA_KW_VAR
+#define DANA_KW case DANA_KW_AND ... DANA_KW_DEF
 
 #define LEFT_ASSOC 0
 #define RIGHT_ASSOC 1
@@ -82,19 +93,9 @@
 	IN(GEQ,			5,	LEFT_ASSOC)			\
 	PRE(OPEN_PAREN,		1)			/* groupings */ \
 	POST(OPEN_PAREN,	9)			/* groupings */ \
-	POST(OPEN_BRACKET,	9)					\
+	/* POST(OPEN_BRACKET,	9)					\ */
 
-#define AST_NAMED_NODE	case AST_KW_BREAK: \
-			case AST_KW_CONT:  \
-			case AST_LOOP:     \
-			case AST_NAME:     \
-			case AST_PROC:     \
-			case AST_FUNC
 #define LVALUE		case AST_NAME:   \
 			case AST_STRING: \
-			case AST_SUB
-#define CLOSING_OP 	case DANA_CLOSE_PAREN: \
-			case DANA_CLOSE_BRACKET
-#define BOOLEAN		case DANA_KW_TRUE:\
-			case DANA_KW_FALSE
+			case AST_ARR_AT
 

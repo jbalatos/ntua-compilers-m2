@@ -1,10 +1,13 @@
 #pragma once
 
-typedef struct { uint8_t lhs, rhs; } parser_bp_t;
+#include "lexer.h"
+#include "types.h"
 
-extern parser_bp_t prefix_table[LEX_TTYPE_LEN],
-		   infix_table[LEX_TTYPE_LEN],
-		   postfix_table[LEX_TTYPE_LEN];
+struct parser_bp_t { uint8_t lhs, rhs; };
+
+extern parser_bp_t prefix_table[LEX_TYPES_LEN],
+		   infix_table[LEX_TYPES_LEN],
+		   postfix_table[LEX_TYPES_LEN];
 
 extern bool _bp_is_prefix (uint32_t type, parser_bp_t *out);
 extern bool _bp_is_infix (uint32_t type, parser_bp_t *out);
@@ -17,26 +20,26 @@ extern bool _bp_is_postfix (uint32_t type, parser_bp_t *out);
 #ifdef BP_IMPLEMENT
 /** table definitions */
 /* {{{ */
-#define PRE(e, bp) [AST_ ## e] = { 0, (bp) << 1 },
+#define PRE(e, bp) [DANA_ ## e] = { 0, (bp) << 1 },
 #define IN(e, bp, ass)
 #define POST(e, bp)
-parser_bp_t prefix_table[LEX_TTYPE_LEN] = { DANA_OPERATORS };
+parser_bp_t prefix_table[LEX_TYPES_LEN] = { DANA_OPERATORS };
 #undef PRE
 #undef IN
 #undef POST
 
 #define PRE(e, bp)
-#define IN(e, bp, ass) [AST_ ## e] = { ((bp) << 1) + (ass), ((bp) << 1) + 1 - (ass) },
+#define IN(e, bp, ass) [DANA_ ## e] = { ((bp) << 1) + (ass), ((bp) << 1) + 1 - (ass) },
 #define POST(e, bp)
-parser_bp_t infix_table[LEX_TTYPE_LEN] = { DANA_OPERATORS };
+parser_bp_t infix_table[LEX_TYPES_LEN] = { DANA_OPERATORS };
 #undef PRE
 #undef IN
 #undef POST
 
 #define PRE(e, bp)
 #define IN(e, bp, ass)
-#define POST(e, bp) [AST_ ## e] = { (bp) << 1, 0 },
-parser_bp_t postfix_table[LEX_TTYPE_LEN] = { DANA_OPERATORS };
+#define POST(e, bp) [DANA_ ## e] = { (bp) << 1, 0 },
+parser_bp_t postfix_table[LEX_TYPES_LEN] = { DANA_OPERATORS };
 #undef PRE
 #undef IN
 #undef POST
