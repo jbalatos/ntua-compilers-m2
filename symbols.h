@@ -34,6 +34,7 @@
 	LT_PAR	(		REF_BYTE,	"byte-ref")		\
 	LT_PAR	(		ARR_INT,	"int-array")		\
 	LT_PAR	(		ARR_BYTE,	"byte-array")		\
+	LT_PAR	(		LOCAL_DEF,	"local defs")		\
 	LT_LEX	(EOF,				"EOF")			\
 
 #define DANA_KEYWORDS \
@@ -60,12 +61,12 @@
 	KW_LEX	(TRUE,				"true")			\
 	KW_LEX	(FALSE,				"false")		\
 	KW_LEX	(IS,				"is")			\
-	KW	(DECL,		PROC_DECL,	"decl")	/* funcs */	\
-	KW	(DEF,		PROC_DEF,	"def")			\
-	KW_PAR	(		FUNC_INT_DECL,	"int-decl")		\
-	KW_PAR	(		FUNC_BYTE_DECL,	"byte-decl")		\
-	KW_PAR	(		FUNC_INT_DEF,	"int-def")		\
-	KW_PAR	(		FUNC_BYTE_DEF,	"byte-def")		\
+	KW	(DECL,		DECL_PROC,	"decl")	/* funcs */	\
+	KW_PAR	(		DECL_INT,	"decl int")		\
+	KW_PAR	(		DECL_BYTE,	"decl byte")		\
+	KW	(DEF,		DEF_PROC,	"def")			\
+	KW_PAR	(		DEF_INT,	"def int")		\
+	KW_PAR	(		DEF_BYTE,	"def byte")		\
 
 #define DANA_KW case DANA_KW_AND ... DANA_KW_DEF
 

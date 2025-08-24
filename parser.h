@@ -183,5 +183,5 @@ _parser_pop_token (parser_t *this)
 
 inline ast_node_pos
 parse (parser_t *this)
-{ return _parse_var(this, true); }
+{ return _parse_decl(this, DANA_KW_DEF); }
 #endif // PARSER_IMPLEMENT

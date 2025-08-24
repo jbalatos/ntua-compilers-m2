@@ -57,7 +57,8 @@ struct ast_node_t {
 #undef KW_LEX
 
 extern const char* ast_get_type_str (ast_node_t node);
-extern void       _ast_node_print (const parser_t *this, ast_node_pos pos, const char *str);
+extern void       _ast_print_decl (const parser_t *this, const ast_node_t node, const char *end);
+extern void       _ast_node_print (const parser_t *this, ast_node_pos pos, const char *end);
 
 #define ast_node_print(this, pos) _ast_node_print(this, pos, "")
 
@@ -98,13 +99,23 @@ ast_get_type_str (ast_node_t node)
 { return ast_symbol_arr[node.type]; }
 
 void
-_ast_node_print (const parser_t *this, ast_node_pos pos, const char *str)
+_ast_print_decl (const parser_t *this, const ast_node_t node, const char *end)
+{
+	printf("%.*s (params: ",
+			UNSLICE(parser_get_name(this, node.name_data.name)));
+	if (node.name_data.body.pos)
+		ast_node_print(this, node.name_data.body);
+	printf(")"); printf(end);
+}
+
+void
+_ast_node_print (const parser_t *this, ast_node_pos pos, const char *end)
 {/* {{{ */
 	ast_node_t node = parser_get_node(this, pos);
 	lex_token_pos tok;
 
 	switch (node.type) {
-	/* literals -- values */
+	/* literals */
 	case AST_NUMBER:
 		printf("%d", node.pl_data.num);
 	break;	case AST_BOOL:
@@ -116,9 +127,10 @@ _ast_node_print (const parser_t *this, ast_node_pos pos, const char *str)
 	break;	case AST_NAME:
 		tok = hm_get(this->names, node.pl_data.name);
 		printf("#%.*s", UNSLICE(parser_get_value_by_pos(this, tok)));
+	/* variables */
 	break;	case AST_INT ... AST_BYTE:
 		case AST_REF_INT ... AST_ARR_BYTE:
-		printf("(%s #%.*s", ast_get_type_str(node),
+		printf("(%s %.*s", ast_get_type_str(node),
 				UNSLICE(parser_get_name(this, node.var_data.name)));
 		if (node.type == AST_ARR_INT || node.type == AST_ARR_BYTE)
 			for (uint8_t i=0; i<4; ++i) {
@@ -138,13 +150,13 @@ _ast_node_print (const parser_t *this, ast_node_pos pos, const char *str)
 	break;	case AST_ARR_AT:
 		_ast_node_print(this, node.op_data.lhs, "[");
 		_ast_node_print(this, node.op_data.rhs, "]");
+	/* func call */
 	break;	case AST_FUNC:
 		printf("func-call %.*s", UNSLICE(parser_get_name(this, node.name_data.name)));
 		_ast_node_print(this, node.name_data.body, ")");
 	break;	case AST_PROC:
 		printf("proc-call %.*s", UNSLICE(parser_get_name(this, node.name_data.name)));
 		_ast_node_print(this, node.name_data.body, ")");
-	/* function decl-def */
 	break;	case AST_ARGS:
 		printf("(args: ");
 		for (uint32_t i=0; i<node.extra_data.length; ++i) {
@@ -153,6 +165,31 @@ _ast_node_print (const parser_t *this, ast_node_pos pos, const char *str)
 						POS_ADV(node.extra_data.pos, i)));
 		}
 		printf(")");
+	/* function decl-def */
+	break;	case AST_DECL_PROC ... AST_DECL_BYTE:
+		printf("(%s ", ast_get_type_str(node));
+		_ast_print_decl(this, node, ")");
+	break;	case AST_DEF_PROC ... AST_DEF_BYTE:
+		printf("(%s ", ast_get_type_str(node));
+		_ast_print_decl(this, parser_get_node(this, node.op_data.lhs),
+				" : ");
+		_ast_node_print(this, node.op_data.rhs, ")");
+	break; case AST_LOCAL_DEF:
+		if (node.extra_data.length > 1) {
+			printf("(defs:");
+			for (uint32_t i=0; i < node.extra_data.length - 1; ++i) {
+				printf(" ");
+				ast_node_print(this, parser_get_extra(this,
+							POS_ADV(node.extra_data.pos, i)));
+			}
+			printf(")");
+		} else {
+			printf("(no defs)");
+		}
+		printf(" => ");
+		ast_node_print(this, parser_get_extra(this, POS_ADV(
+						node.extra_data.pos,
+						node.extra_data.length - 1)));
 	/* statements */
 	break;	case AST_BLOCK:
 		printf("[");
@@ -215,7 +252,7 @@ _ast_node_print (const parser_t *this, ast_node_pos pos, const char *str)
 	break;	default:
 		printf("%s(%u) -- PENDING", ast_get_type_str(node), node.type);
 	}
-	printf(str);
+	printf(end);
 }/* }}} */
 #endif // AST_IMPLEMENT
 

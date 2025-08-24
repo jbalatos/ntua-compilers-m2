@@ -8,14 +8,16 @@
 char          _parse_hex (const char buf[2]);
 char          _parse_char (const parser_t *this, lex_token_t tok);
 ast_node_t    _get_lvalue (parser_t *this, lex_token_pos *posp, bool name_only);
+size_t        _get_name (parser_t *this);
 
 ast_node_pos  _parse_args (parser_t *this);
 ast_node_pos  _parse_block (parser_t *this);
 ast_node_pos  _parse_cond (parser_t *this);
 ast_node_pos  _parse_decl (parser_t *this, enum lex_type to_match);
 ast_node_pos  _parse_expr (parser_t *this, uint8_t thrs);
+ast_node_pos  _parse_func (parser_t *this);
 ast_node_pos  _parse_stmt (parser_t *this);
-ast_node_pos  _parse_var (parser_t *this, bool expect_var);
+ast_node_pos  _parse_var (parser_t *this, enum lex_type to_match);
 
 #define PEEK_TOKEN(prs, tok, pos) ({                     \
 		(pos) = _parser_peek_token((prs));       \
@@ -79,7 +81,6 @@ _get_lvalue (parser_t *this, lex_token_pos *posp, bool name_only)
 	case DANA_NAME:
 		slice_char_t sl = parser_get_value_by_tok(this, tok);
 		size_t hash = hm_hash_bytes(sl.ptr, sl.length);
-		printf("DBG NAME: [%u] %.*s -- %lu\n", pos.pos, UNSLICE(sl), hash);
 		hm_put(this->names, hash, pos);
 		return (ast_node_t){ .type = AST_NAME, .pl_data.name = hash };
 	case DANA_STRING:
@@ -93,19 +94,19 @@ _get_lvalue (parser_t *this, lex_token_pos *posp, bool name_only)
 		return (ast_node_t){};
 	});
 
-	dbg(ast_get_type_str(node), "%s");
-	{
-		slice_char_t sl = parser_get_value_by_pos(this, pos);
-		LEX_TEMP_SLICE(sl);
-		dbg(sl.ptr, "%s");
-	}
-	{
-		slice_char_t sl = parser_get_value_by_tok(this, tok);
-		LEX_TEMP_SLICE(sl);
-		dbg(sl.ptr, "%s");
-		dbg(node.pl_data.name, "%lu");
-		dbg(hm_get(this->names, node.pl_data.name).pos, "%u");
-	}
+	// dbg(ast_get_type_str(node), "%s");/* {{{ */
+	// {
+		// slice_char_t sl = parser_get_value_by_pos(this, pos);
+		// LEX_TEMP_SLICE(sl);
+		// dbg(sl.ptr, "%s");
+	// }
+	// {
+		// slice_char_t sl = parser_get_value_by_tok(this, tok);
+		// LEX_TEMP_SLICE(sl);
+		// dbg(sl.ptr, "%s");
+		// dbg(node.pl_data.name, "%lu");
+		// dbg(hm_get(this->names, node.pl_data.name).pos, "%u");
+	// }/* }}} */
 
 	if (!name_only)
 		while (PEEK_TOKEN(this, tok, pos).type == DANA_OPEN_BRACKET) {
@@ -121,6 +122,10 @@ _get_lvalue (parser_t *this, lex_token_pos *posp, bool name_only)
 
 	return node;
 }/* }}} */
+
+inline size_t
+_get_name (parser_t *this)
+{ return _get_lvalue(this, NULL, true).pl_data.name; }
 /* }}} */
 
 ast_node_pos
@@ -249,6 +254,52 @@ _parse_cond (parser_t *this)
 }/* }}} */
 
 ast_node_pos
+_parse_decl (parser_t *this, enum lex_type to_match)
+/* if to_match == 0, run decl, don't consume keyword */
+{/* {{{ */
+	ast_node_t node;
+	ast_node_pos decl;
+	lex_token_t __attribute__((unused)) tok;
+	lex_token_pos pos;
+
+	if (to_match)   _assert(NEXT_TOKEN(this, tok, pos).type == to_match,
+			"Func-decl did not begin with expected keyword");
+	if (to_match == DANA_KW_DEF) {
+		decl = _parse_decl(this, 0);
+		node = (ast_node_t){
+			.type = AST_DEF_PROC +
+				(parser_get_node(this, decl).type - AST_DECL_PROC),
+			.op_data = { decl, _parse_func(this) },
+		};
+		return AST_APPEND(this, node);
+	}
+	/* match decl, keyword consumed */
+	node = (ast_node_t){
+		.type = AST_DECL_PROC, .name_data.name = _get_name(this),
+	};
+	if (PEEK_TOKEN(this, tok, pos).type == DANA_KW_IS) {
+		POP_TOKEN(this, tok, pos);
+		node.type = SWITCH(NEXT_TOKEN(this, tok, pos).type, enum ast_type, {
+		case DANA_KW_INT : return AST_DECL_INT;
+		case DANA_KW_BYTE: return AST_DECL_BYTE;
+		default          : _assert(false, "Invalid return type");
+		});
+	}
+	if (PEEK_TOKEN(this, tok, pos).type == DANA_COLON) {
+		POP_TOKEN(this, tok, pos);
+		while (true) {
+			node.name_data.body = _parse_var(this, 0);
+			if (PEEK_TOKEN(this, tok, pos).type == DANA_COMMA) {
+				POP_TOKEN(this, tok, pos);
+				continue;
+			}
+			break;
+		}
+	}
+	return AST_APPEND(this, node);
+}/* }}} */
+
+ast_node_pos
 _parse_expr (parser_t *this, uint8_t thrs)
 {/* {{{ */
 	ast_node_t node;
@@ -332,54 +383,31 @@ _parse_expr (parser_t *this, uint8_t thrs)
 }/* }}} */
 
 ast_node_pos
-_parse_func (parser_t *this, enum lex_type to_match)
+_parse_func (parser_t *this)
 {/* {{{ */
-	// ast_node_t node;
-	// ast_node_pos npos;
-	// lex_token_t tok;
-	// lex_token_pos pos;
-	// func_decl_t func;
-	// ast_dtype_t *tmp = {0};
-// 
-	// _assert(NEXT_TOKEN(this, tok, pos).type == to_match,
-			// "Did not find corresponding func decl/def");
-	// node.type = AST_PROC_DECL;
-// 
-	// func.name = _get_lvalue(this, NULL, true).pl_data.name;
-	// if (PEEK_TOKEN(this, tok, pos).type == DANA_KW_IS) {
-		// POP_TOKEN(this, tok, pos);
-		// node.type = SWITCH(NEXT_TOKEN(this, tok, pos).type, enum lex_type, {
-		// case DANA_KW_INT : return AST_FUNC_INT_DECL;
-		// case DANA_KW_BYTE: return AST_FUNC_BYTE_DECL;
-		// default          : _assert(false, "Invalid return type");
-		// });
-	// }
-	// if (PEEK_TOKEN(this, tok, pos).type == DANA_COLON) do {
-		// POP_TOKEN(this, tok, pos);
-		// arr_push(tmp, _get_farg(this));
-	// } while (PEEK_TOKEN(this, tok, pos).type == DANA_COMMA);
-	// func.args = parser_append_types(this, tmp);
-	// arr_push(this->funcs, func);
-// 
-	// if (to_match == DANA_KW_DECL) {
-		// node.func_data = (ast_func_data){
-			// .name = func.name,
-			// .decl = { arr_ulen(this->funcs) - 1 },
-		// };
-	// } else {
-		// node.type = SWITCH(node.type, enum ast_type, {
-		// case AST_PROC_DECL     : return AST_PROC_DEF;
-		// case AST_FUNC_INT_DECL : return AST_FUNC_INT_DEF;
-		// case AST_FUNC_BYTE_DECL: return AST_FUNC_BYTE_DEF;
-		// });
-		// node.name_data = (ast_name_data){
-			// .decl = { arr_ulen(this->funcs) - 1 },
-			// .def = _parse_block(this),
-		// };
-	// }
-// 
-	// return AST_APPEND(this, node);
-	return (ast_node_pos){};
+	lex_token_t tok;
+	lex_token_pos pos;
+	ast_node_pos *tmp = {0};
+
+	while (true) {
+		switch (PEEK_TOKEN(this, tok, pos).type) {
+		case DANA_KW_DEF:
+		case DANA_KW_DECL:
+			arr_push(tmp, _parse_decl(this, tok.type));
+			continue;
+		case DANA_KW_VAR:
+			arr_push(tmp, _parse_var(this, DANA_KW_VAR));
+			continue;
+		default:
+			arr_push(tmp, _parse_block(this));
+		};
+		break;
+	}
+
+	return AST_APPEND(this, ((ast_node_t){
+		.type = AST_LOCAL_DEF,
+		.extra_data = parser_append_extras(this, tmp),
+	}));
 }/* }}} */
 
 ast_node_pos
@@ -388,7 +416,11 @@ _parse_stmt (parser_t *this)
 	ast_node_t node;
 	lex_token_t tok;
 	lex_token_pos pos;
-	size_t name;
+
+	// PEEK_TOKEN(this, tok, pos);
+	// printf("---\tParse stmt: peek: %s [%.*s]\n",
+			// lex_get_type_str(tok),
+			// UNSLICE(parser_get_value_by_tok(this, tok)));
 
 	if (PEEK_TOKEN(this, tok, pos).type == DANA_KW_IF)
 		return _parse_cond(this);
@@ -409,12 +441,13 @@ _parse_stmt (parser_t *this)
 		if (PEEK_TOKEN(this, tok, pos).type != DANA_COLON)
 			return (ast_node_t){ type };
 		POP_TOKEN(this, tok, pos);
-		name = _get_lvalue(this, NULL, true).pl_data.name;
-		return (ast_node_t){ .type = type, .name_data.name = name };
+		return (ast_node_t){
+			.type = type, .name_data.name = _get_name(this),
+		};
 	case DANA_KW_LOOP:
 		size_t name = 0;
 		if (PEEK_TOKEN(this, tok, pos).type != DANA_COLON)
-			name = _get_lvalue(this, NULL, true).pl_data.name,
+			name = _get_name(this);
 		_assert(NEXT_TOKEN(this, tok, pos).type == DANA_COLON,
 				"Could not find colon in loop definition");
 		return (ast_node_t){
@@ -447,15 +480,19 @@ _parse_stmt (parser_t *this)
 		return (ast_node_t){};
 	});
 
+	printf("\tparsed stmt %s\n", ast_get_type_str(node));
+
 	return AST_APPEND(this, node);
 }/* }}} */
 
 ast_node_pos
-_parse_var (parser_t *this, bool expect_var)
-{
+_parse_var (parser_t *this, enum lex_type to_match)
+{/* {{{ */
 	ast_node_pos ret, prv = {0};
 	lex_token_t tok;
 	lex_token_pos pos;
+
+	const bool expect_var = to_match == DANA_KW_VAR;
 	size_t *names = {0};
 	enum ast_type dtype;
 	uint16_t dim[4] = {0};
@@ -465,7 +502,7 @@ _parse_var (parser_t *this, bool expect_var)
 
 	if (expect_var) _assert(NEXT_TOKEN(this, tok, pos).type == DANA_KW_VAR,
 			"Did not find var keyword on var-def");
-	do arr_push(names, _get_lvalue(this, NULL, true).pl_data.name);
+	do arr_push(names, _get_name(this));
 	while (PEEK_TOKEN(this, tok, pos).type == DANA_NAME);
 
 	printf("---\tNames:");
@@ -524,7 +561,7 @@ _parse_var (parser_t *this, bool expect_var)
 	printf("---\tdim: [%u %u %u %u]\n", dim[0], dim[1], dim[2], dim[3]);
 
 	for (uint32_t i=0; i<arr_ulen(names); ++i) {
-		printf("---\t\tAppending %.*s\n",
+		printf("---\tAppending %.*s\n",
 				UNSLICE(parser_get_name(this, names[i])));
 		ast_node_pos node = AST_APPEND(this, ((ast_node_t){
 			.type = dtype,
@@ -539,11 +576,11 @@ _parse_var (parser_t *this, bool expect_var)
 		prv = node;
 	}
 
-	for (ast_node_pos i=ret; i.pos < prv.pos; ++i.pos)
-		_ast_node_print(this, i, "\n");
+	// for (ast_node_pos i=ret; i.pos < prv.pos; ++i.pos)
+		// _ast_node_print(this, i, "\n");
 
 	arr_free(names);
 	printf("END var\n");
 	return ret;
-}
+}/* }}} */
 
