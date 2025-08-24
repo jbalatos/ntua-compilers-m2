@@ -28,12 +28,12 @@ hash table.
 
 ### Δομές
 
-- `struct lexer_t`{.c}:
+- `struct lexer_t`:
     - `buffer`: buffer με ολόκληρο το αρχείο
     - `alloc`: allocator που χρησιμοποιήθηκε για τον `buffer`
     - `fname`: όνομα αρχείου προς tokenization
 - `LEXER_CLEANUP`: `lexer_t` με αυτόματο destruction
--  `struct lex_token_t`{.c}:
+-  `struct lex_token_t`:
     - `type`: tag του token
     - `pos`: index στο `lexer_t::buffer` όπου ξεκινάει
 
@@ -55,7 +55,7 @@ hash table.
 
 ### Δομές
 
-- `struct parser_t`{.c}:
+- `struct parser_t`:
     - `lexer`: ο lexer προς χρήση
     - `tokens`: dynamic array με τα tokens που κατασκευάζει ο lexer. Δεν 
       χρησιμοποιούνται μετά την κατασκευή του AST
@@ -69,10 +69,10 @@ hash table.
       semantic analysis
     - `names`: Hash masp που αντιστοιχεί ID σε string, επιτρέπει χρήση ονομάτων 
       για το debugging των identifiers. Δεν χρειάζεται σε production
-- `struct ast_node_t`{.c}:
+- `struct ast_node_t`:
     - `type`: tag του node (αντίστοιχα types μεταξύ `lex_token_t` και 
       `ast_node_t` έχουν ίδιο value)
-    - `union`{.c}:
+    - `union`:
         - `pl_data`: αξιά σε περίπτωση literal node (αντιγραμμένη από τον lexer)
         - `op_data`: unary / binary operator. Περιέχει 2 δείκτες σε άλλα nodes
         - `name_data`: περιέχει 1 identifier και 1 δείκτη σε node (body σε named 
