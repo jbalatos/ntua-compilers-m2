@@ -103,7 +103,7 @@ _ast_print_decl (const parser_t *this, const ast_node_t node, const char *end)
 {
 	printf("%.*s (params: ",
 			UNSLICE(parser_get_name(this, node.name_data.name)));
-	if (node.name_data.body.pos)
+	if (POS_OK(node.name_data.body))
 		ast_node_print(this, node.name_data.body);
 	printf(")"); printf(end);
 }
@@ -140,7 +140,7 @@ _ast_node_print (const parser_t *this, ast_node_pos pos, const char *end)
 					printf("[]");
 			}
 		printf(")");
-		if (node.var_data.next.pos)
+		if (POS_OK(node.var_data.next))
 			ast_node_print(this, node.var_data.next);
 	/* operators */
 	break;	case AST_PLUS ... AST_CMP_GEQ:

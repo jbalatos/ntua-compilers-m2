@@ -571,7 +571,7 @@ _parse_var (parser_t *this, enum lex_type to_match)
 				.dim[2] = dim[2], .dim[3] = dim[3],
 			},
 		}));
-		if (prv.pos) this->ast[prv.pos].var_data.next = node;
+		if (POS_OK(prv)) this->ast[prv.pos].var_data.next = node;
 		else ret = node;
 		prv = node;
 	}

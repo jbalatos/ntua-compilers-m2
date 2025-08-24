@@ -21,4 +21,5 @@
 #define POS_ADV(p, x) ((typeof(p)){ (p).pos + x })
 #define POS_DIFF(a, b) ((b).pos - (a).pos)
 #define POS_CMP(a, b) ((int32_t)(a).pos - (int32_t)(b).pos)
+#define POS_OK(a) ((a).pos != 0)
 
