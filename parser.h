@@ -112,7 +112,7 @@ parser_get_name (const parser_t *this, size_t hash)
 inline slice_char_t
 parser_get_value_by_tok (const parser_t *this, lex_token_t tok)
 {
-	return lex_token_val(&this->lexer, tok);
+	return lex_get_token(&this->lexer, tok);
 }
 
 inline slice_char_t

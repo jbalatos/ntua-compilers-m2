@@ -35,8 +35,8 @@ int main (int argc, char *argv[argc])
 	// for (; tok.type != DANA_EOF; tok = lex_next_token(&lexer, &tok)) {
 		// printf("%3u: %10s\t\t%20.*s\t\t(%u @ %p)\n",
 				// tok.pos.pos, lex_get_type_str(tok),
-				// UNSLICE(lex_token_val(&lexer, tok)),
-				// UNSLICE(lex_token_val(&lexer, tok)));
+				// UNSLICE(lex_get_token(&lexer, tok)),
+				// UNSLICE(lex_get_token(&lexer, tok)));
 	// }
 
 	PARSER_CLEANUP parser = parser_create(lexer_create(&LIBC, fname));

@@ -57,25 +57,25 @@ struct lex_token_t {
 extern lexer_t         lexer_create (const alloc_t *alloc, const char *fname);
 extern void            lexer_destroy (const lexer_t *this);
 /* lexer_t methods */
-extern bool           _lex_eof (const lexer_t *this, lex_buf_pos pos);
-extern char           _lex_read_char (const lexer_t *this, lex_buf_pos pos);
-extern slice_char_t   _lex_read_str (const lexer_t *this, lex_buf_pos pos, uint32_t length);
-extern bool           _lex_matches (const lexer_t *this, lex_buf_pos pos, const char *str);
-/* symbol table */
-extern const char*     lex_get_type_str (lex_token_t tok);
-extern enum lex_type _lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len);
-/* tokenizer */
 extern lex_token_t     lex_next_token (const lexer_t *this, const lex_token_t *prev);
 extern slice_char_t    lex_get_token (const lexer_t *this, lex_token_t tok);
-extern slice_char_t    lex_token_val (const lexer_t *this, lex_token_t tok);
-extern int             isiden (int ch);
-extern int             ishex (int ch);
-extern lex_buf_pos    _lex_skip_spaces (const lexer_t *this, lex_buf_pos pos);
-extern lex_buf_pos    _lex_scan_char (const lexer_t *this, lex_buf_pos pos);
-extern lex_token_t    _lex_token_at (const lexer_t *this, lex_buf_pos pos);
-extern lex_buf_pos    _lex_token_end (const lexer_t *this, lex_token_t tok); /* exclusive */
+/* symbol table */
+extern const char*     lex_get_type_str (lex_token_t tok);
 
 #ifdef LEX_IMPLEMENT
+/** private declarations */
+bool           _lex_eof (const lexer_t *this, lex_buf_pos pos);
+char           _lex_read_char (const lexer_t *this, lex_buf_pos pos);
+slice_char_t   _lex_read_str (const lexer_t *this, lex_buf_pos pos, uint32_t length);
+bool           _lex_matches (const lexer_t *this, lex_buf_pos pos, const char *str);
+enum lex_type  _lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len);
+int             isiden (int ch);
+int             ishex (int ch);
+lex_buf_pos    _lex_skip_spaces (const lexer_t *this, lex_buf_pos pos);
+lex_buf_pos    _lex_scan_char (const lexer_t *this, lex_buf_pos pos);
+lex_token_t    _lex_token_at (const lexer_t *this, lex_buf_pos pos);
+lex_buf_pos    _lex_token_end (const lexer_t *this, lex_token_t tok); /* exclusive */
+
 /** lexer_t constructor - destructor */
 /* {{{ */
 lexer_t
@@ -342,7 +342,7 @@ _lex_token_end (const lexer_t *this, lex_token_t tok)
 }
 
 inline slice_char_t
-lex_token_val (const lexer_t *this, lex_token_t tok)
+lex_get_token (const lexer_t *this, lex_token_t tok)
 { return _lex_read_str(this, tok.pos, POS_DIFF(tok.pos, _lex_token_end(this, tok))); }
 
 lex_token_t
