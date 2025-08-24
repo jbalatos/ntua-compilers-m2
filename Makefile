@@ -1,4 +1,4 @@
-CFLAGS=-Wall -g -std=gnu11 -D_XOPEN_SOURCE=700
+CFLAGS=-Wall -Werror -g -std=gnu11 -D_XOPEN_SOURCE=700
 SRC = main.c
 DIST = main
 
