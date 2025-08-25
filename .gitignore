@@ -2,8 +2,7 @@
 *.o
 main
 *.dana
-*.bak
 
 .exrc
 tags
-template.txt
+etc/
