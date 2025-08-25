@@ -4,10 +4,6 @@
 #define ALLOC_IMPLEMENT
 #include "util/alloc.h"
 
-#define BP_IMPLEMENT
-#define DA_IMPLEMENT
-#define LEX_IMPLEMENT
-#define AST_IMPLEMENT
 #define PARSER_IMPLEMENT
 #include "parser.h"
 

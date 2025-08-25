@@ -1,6 +1,5 @@
 #include "bind_power.h"
 #include "lexer.h"
-#include "types.h"
 #include "util/dynamic_array.h"
 #include <stdlib.h>
 

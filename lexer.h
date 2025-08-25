@@ -1,5 +1,10 @@
 #pragma once
 
+#ifdef LEX_IMPLEMENT
+	#define ALLOC_IMPLEMENT
+	#define DA_IMPLEMENT
+#endif
+
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>

@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef BP_IMPLEMENT
+	#define LEX_IMPLEMENT
+#endif
+
 #include "lexer.h"
 
 typedef struct { uint8_t lhs, rhs; } parser_bp_t;

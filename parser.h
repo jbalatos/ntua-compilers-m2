@@ -1,5 +1,12 @@
 #pragma once
 
+#ifdef PARSER_IMPLEMENT
+	#define BP_IMPLEMENT
+	#define AST_IMPLEMENT
+	#define LEX_IMPLEMENT
+	#define DA_IMPLEMENT
+#endif
+
 #include "bind_power.h"
 #include "ast.h"
 #include "lexer.h"
