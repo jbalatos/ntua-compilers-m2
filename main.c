@@ -41,7 +41,7 @@ int main (int argc, char *argv[argc])
 
 	PARSER_CLEANUP parser = parser_create(lexer_create(&LIBC, fname));
 	ast_node_pos root = parse(&parser);
-	ast_node_print(&parser, root);
+	parser_print_node(&parser, root);
 
 	return 0;
 }

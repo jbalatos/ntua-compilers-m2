@@ -4,18 +4,20 @@
 #include <ctype.h>
 #include <stdio.h>
 #include "symbols.h"
-#include "types.h"
 #include "util.h"
 #include "util/alloc.h"
 #include "util/dynamic_array.h"
 
 #define LEX_SPACES_PER_TAB 4
 
-struct lexer_t {
+typedef slice(char) slice_char_t;
+POS_DECL(lex_buf_pos, 24);
+
+typedef struct {
 	slice_char_t buffer;
 	const alloc_t *alloc;
 	const char *fname;
-};
+} lexer_t;
 
 #define OP_LEX(l, s) DANA_    ## l,
 #define TK_LEX(l, s) DANA_    ## l,
@@ -29,7 +31,7 @@ struct lexer_t {
 #define LT_PAR(p, s) DANA_UNUSED_ ## p,
 #define KW_PAR(p, s) DANA_UNUSED_KW_ ## p,
 
-struct lex_token_t {
+typedef struct {
 	enum lex_type {
 		DANA_ERROR = 0,
 		DANA_TYPES
@@ -38,7 +40,7 @@ struct lex_token_t {
 		LEX_TYPES_LEN,
 	} type : 8;
 	lex_buf_pos pos;
-};
+} lex_token_t;
 
 #undef OP_LEX
 #undef TK_LEX

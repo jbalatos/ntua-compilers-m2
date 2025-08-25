@@ -577,7 +577,7 @@ _parse_var (parser_t *this, enum lex_type to_match)
 	}
 
 	// for (ast_node_pos i=ret; i.pos < prv.pos; ++i.pos)
-		// _ast_node_print(this, i, "\n");
+		// _parser_print_node(this, i, "\n");
 
 	arr_free(names);
 	printf("END var\n");

@@ -1,9 +1,8 @@
 #pragma once
 
 #include "lexer.h"
-#include "types.h"
 
-struct parser_bp_t { uint8_t lhs, rhs; };
+typedef struct { uint8_t lhs, rhs; } parser_bp_t;
 
 extern parser_bp_t prefix_table[LEX_TYPES_LEN],
 		   infix_table[LEX_TYPES_LEN],

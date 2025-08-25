@@ -1,12 +1,15 @@
 #pragma once
 
 #include "bind_power.h"
+#include "ast.h"
 #include "lexer.h"
 #include "types.h"
 #include "util.h"
 #include "util/dynamic_array.h"
 
-struct parser_t {
+POS_DECL(lex_token_pos, 24);
+
+typedef struct {
 	lexer_t       lexer;  /* underlying lexer */
 	lex_token_t  *tokens; /* dynamic array of the tokens created by lexer */
 	lex_token_t  *last;   /* pointer to last element of tokens */
@@ -16,7 +19,7 @@ struct parser_t {
 	char         *text;   /* dynamic array of const strings (0-terminated) */
 	struct { uint32_t key; lex_token_pos value; } *names;
 				/* hash map matching name ID => name position */
-};
+} parser_t;
 
 #define PARSER_CLEANUP parser_t __attribute__((cleanup(parser_destroy)))
 extern parser_t               parser_create (const lexer_t lexer);
@@ -31,16 +34,17 @@ extern slice_char_t           parser_get_value_by_tok (const parser_t *this, lex
 extern slice_char_t           parser_get_value_by_pos (const parser_t *this, lex_token_pos pos);
 extern ast_extra_data         parser_append_extras (parser_t *this, ast_node_pos *arr);
 extern text_pos               parser_append_text (parser_t *this, lex_token_t tok);
-extern lex_token_pos         _parser_pop_token (parser_t *this);
+#define parser_print_node(this, pos) _parser_print_node(this, pos, "")
 /* pratt parser */
 extern ast_node_pos           parse (parser_t *this);
 
-#include "ast.h"
-
 #ifdef PARSER_IMPLEMENT
 /** private method definitions */
-extern lex_token_pos _parser_next_token (parser_t *this);
-extern lex_token_pos _parser_peek_token (parser_t *this);
+lex_token_pos _parser_next_token (parser_t *this);
+lex_token_pos _parser_peek_token (parser_t *this);
+lex_token_pos _parser_pop_token (parser_t *this);
+void          _parser_print_node (const parser_t *this, ast_node_pos pos, const char *end);
+void          _parser_print_decl (const parser_t *this, const ast_node_t node, const char *end);
 
 /** parser constructor - destructor */
 /* {{{ */
@@ -176,7 +180,166 @@ _parser_pop_token (parser_t *this)
 	this->last = &arr_back(this->tokens);
 	return (lex_token_pos){ arr_ulen(this->tokens) - 1 };
 }
+
+void
+_parser_print_decl (const parser_t *this, const ast_node_t node, const char *end)
+{
+	printf("%.*s (params: ",
+			UNSLICE(parser_get_name(this, node.name_data.name)));
+	if (POS_OK(node.name_data.body))
+		parser_print_node(this, node.name_data.body);
+	printf(")"); printf(end);
+}
+
 /* }}} */
+
+/** parser print */
+void
+_parser_print_node (const parser_t *this, ast_node_pos pos, const char *end)
+{/* {{{ */
+	ast_node_t node = parser_get_node(this, pos);
+	lex_token_pos tok;
+
+	switch (node.type) {
+	/* literals */
+	case AST_NUMBER:
+		printf("%d", node.pl_data.num);
+	break;	case AST_BOOL:
+		printf("%s", node.pl_data.num ? "true" : "false");
+	break;	case AST_CHAR:
+		printf("'%c'", node.pl_data.ch);
+	break;	case AST_STRING:
+		printf("\"%s\"", parser_get_text(this, node.pl_data.str));
+	break;	case AST_NAME:
+		tok = hm_get(this->names, node.pl_data.name);
+		printf("#%.*s", UNSLICE(parser_get_value_by_pos(this, tok)));
+	/* variables */
+	break;	case AST_INT ... AST_BYTE:
+		case AST_REF_INT ... AST_ARR_BYTE:
+		printf("(%s %.*s", ast_get_type_str(node),
+				UNSLICE(parser_get_name(this, node.var_data.name)));
+		if (node.type == AST_ARR_INT || node.type == AST_ARR_BYTE)
+			for (uint8_t i=0; i<4; ++i) {
+				if (node.var_data.dim[i])
+					printf("[%u]", node.var_data.dim[i]);
+				else if (i == 0)
+					printf("[]");
+			}
+		printf(")");
+		if (POS_OK(node.var_data.next))
+			parser_print_node(this, node.var_data.next);
+	/* operators */
+	break;	case AST_PLUS ... AST_CMP_GEQ:
+		printf("(%s ", ast_get_type_str(node));
+		_parser_print_node(this, node.op_data.lhs, " ");
+		_parser_print_node(this, node.op_data.rhs, ")");
+	break;	case AST_ARR_AT:
+		_parser_print_node(this, node.op_data.lhs, "[");
+		_parser_print_node(this, node.op_data.rhs, "]");
+	/* func call */
+	break;	case AST_FUNC:
+		printf("func-call %.*s", UNSLICE(parser_get_name(this, node.name_data.name)));
+		_parser_print_node(this, node.name_data.body, ")");
+	break;	case AST_PROC:
+		printf("proc-call %.*s", UNSLICE(parser_get_name(this, node.name_data.name)));
+		_parser_print_node(this, node.name_data.body, ")");
+	break;	case AST_ARGS:
+		printf("(args: ");
+		for (uint32_t i=0; i<node.extra_data.length; ++i) {
+			if (i) printf(", ");
+			parser_print_node(this, parser_get_extra(this,
+						POS_ADV(node.extra_data.pos, i)));
+		}
+		printf(")");
+	/* function decl-def */
+	break;	case AST_DECL_PROC ... AST_DECL_BYTE:
+		printf("(%s ", ast_get_type_str(node));
+		_parser_print_decl(this, node, ")");
+	break;	case AST_DEF_PROC ... AST_DEF_BYTE:
+		printf("(%s ", ast_get_type_str(node));
+		_parser_print_decl(this, parser_get_node(this, node.op_data.lhs),
+				" : ");
+		_parser_print_node(this, node.op_data.rhs, ")");
+	break; case AST_LOCAL_DEF:
+		if (node.extra_data.length > 1) {
+			printf("(defs:");
+			for (uint32_t i=0; i < node.extra_data.length - 1; ++i) {
+				printf(" ");
+				parser_print_node(this, parser_get_extra(this,
+							POS_ADV(node.extra_data.pos, i)));
+			}
+			printf(")");
+		} else {
+			printf("(no defs)");
+		}
+		printf(" => ");
+		parser_print_node(this, parser_get_extra(this, POS_ADV(
+						node.extra_data.pos,
+						node.extra_data.length - 1)));
+	/* statements */
+	break;	case AST_BLOCK:
+		printf("[");
+		for (uint32_t i=0; i<node.extra_data.length; ++i) {
+			if (i) printf(", ");
+			parser_print_node(this, parser_get_extra(this,
+						POS_ADV(node.extra_data.pos, i)));
+		}
+		printf("]");
+	break; case AST_BLOCK_SIMPLE:
+		printf("[");
+		_parser_print_node(this, node.name_data.body, "]");
+	break;	case AST_SKIP:
+		case AST_EXIT:
+		case AST_BREAK:
+		case AST_CONT:
+		printf("(%s", ast_get_type_str(node));
+		if (node.name_data.name)
+			printf(" #%.*s", UNSLICE(parser_get_name(this,
+							node.name_data.name)));
+		printf(")");
+	break;	case AST_RETURN:
+		printf("(return ");
+		_parser_print_node(this, node.op_data.lhs, ")");
+	break;	case AST_ASSIGN:
+		printf("(");
+		_parser_print_node(this, node.op_data.lhs, " := ");
+		_parser_print_node(this, node.op_data.rhs, ")");
+	break;	case AST_LOOP:
+		printf("(loop ");
+		if (node.name_data.name)
+			printf("#%.*s ", UNSLICE(parser_get_name(this,
+							node.name_data.name)));
+		_parser_print_node(this, node.name_data.body, ")");
+	break;	case AST_COND_SIMPLE:
+		printf("(if ");
+		_parser_print_node(this, node.op_data.lhs, " => ");
+		_parser_print_node(this, node.op_data.rhs, ")");
+	break;	case AST_COND:
+		uint32_t i = 0;
+		printf("(if ");
+		for (; i + 1 < node.extra_data.length; i += 2) {
+			_parser_print_node(this, parser_get_extra(
+						this,
+						POS_ADV(node.extra_data.pos, i)
+						), " => ");
+			_parser_print_node(this, parser_get_extra(
+						this,
+						POS_ADV(node.extra_data.pos, i + 1)
+						), " ");
+		}
+		if (i < node.extra_data.length) {
+			printf("else => ");
+			parser_print_node(this, parser_get_extra(
+						this,
+						POS_ADV(node.extra_data.pos, i)
+						));
+		}
+		printf(")");
+	break;	default:
+		printf("%s(%u) -- PENDING", ast_get_type_str(node), node.type);
+	}
+	printf(end);
+}/* }}} */
 
 /** parsing functions */
 #include "pratt_parser.c"
