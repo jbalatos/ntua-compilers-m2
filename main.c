@@ -7,6 +7,10 @@
 #define PARSER_IMPLEMENT
 #include "parser.h"
 
+#define SEM_DEBUG
+#define SEM_IMPLEMENT
+#include "semantic.h"
+
 const char fname[] = "sample.dana";
 #define LENGTH(x) (sizeof(x)/sizeof(x[0]))
 
@@ -35,9 +39,33 @@ int main (int argc, char *argv[argc])
 				// UNSLICE(lex_get_token(&lexer, tok)));
 	// }
 
-	PARSER_CLEANUP parser = parser_create(lexer_create(&LIBC, fname));
+	parser_t PARSE_CLEANUP parser = parser_create(lexer_create(&LIBC, fname));
 	ast_node_pos root = parse(&parser);
+
+	printf("\n=== AST ===\n");
 	parser_print_node(&parser, root);
+	printf("\n");
+
+	printf("\n=== AST ARRAY ===\n");
+	for (size_t i=0; i<arr_ulen(parser.ast); ++i)
+		printf("%3lu :\t %s\n", i, ast_get_type_str(parser.ast[i]));
+	printf("\n");
+
+	printf("\n=== NAME TABLE ===\n");
+	for (size_t i=0; i<arr_ucap(parser.names); ++i) {
+		hm_cell_t it = arr_header(parser.names)->hash_table[i];
+		if (it.hash == 0) continue;
+		printf("%20lu\t%.*s\n", parser.names[it.index].key,
+				UNSLICE(parser_get_value_by_pos(&parser,
+						parser.names[it.index].value))
+				);
+	}
+	printf("\n");
+
+	printf("\n=== SEMANTICS ===\n");
+	symbol_table_t ST_CLEANUP st = st_create();
+	sem_error_t sem = sem_check(&parser, &st, root);
+	printf("\n=== Result:\t\t%s ===\n", sem.msg);
 
 	return 0;
 }

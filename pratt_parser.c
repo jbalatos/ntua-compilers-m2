@@ -257,7 +257,7 @@ _parse_decl (parser_t *this, enum lex_type to_match)
 /* if to_match == 0, run decl, don't consume keyword */
 {/* {{{ */
 	ast_node_t node;
-	ast_node_pos decl;
+	ast_node_pos decl, lst_arg;
 	lex_token_t __attribute__((unused)) tok;
 	lex_token_pos pos;
 
@@ -287,7 +287,11 @@ _parse_decl (parser_t *this, enum lex_type to_match)
 	if (PEEK_TOKEN(this, tok, pos).type == DANA_COLON) {
 		POP_TOKEN(this, tok, pos);
 		while (true) {
-			node.name_data.body = _parse_var(this, 0);
+			lst_arg = _parse_var(this, 0);
+			if (POS_OK(node.name_data.body))
+				this->ast[node.name_data.body.pos].var_data.next = lst_arg;
+			else
+				node.name_data.body = lst_arg;
 			if (PEEK_TOKEN(this, tok, pos).type == DANA_COMMA) {
 				POP_TOKEN(this, tok, pos);
 				continue;

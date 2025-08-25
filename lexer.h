@@ -59,8 +59,7 @@ typedef struct {
 #undef KW_PAR
 
 /* lexer_t init */
-#define LEXER_CLEANUP lexer_t \
-	__attribute__((cleanup(lexer_destroy)))
+#define LEX_CLEANUP    __attribute__((cleanup(lexer_destroy)))
 extern lexer_t         lexer_create (const alloc_t *alloc, const char *fname);
 extern void            lexer_destroy (const lexer_t *this);
 /* lexer_t methods */
