@@ -16,7 +16,6 @@
 		{ switch(__param__) {body}; };             \
 		__fn__(val);                              })
 
-
 #define POS_DECL(name, bits) typedef struct __attribute__((packed)) { uint32_t pos: bits; } name
 #define POS_ADV(p, x) ((typeof(p)){ (p).pos + x })
 #define POS_DIFF(a, b) ((b).pos - (a).pos)
