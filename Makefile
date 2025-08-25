@@ -14,4 +14,4 @@ include $(SRC:.c=.d)
 
 .PHONY: clean
 clean:
-	rm -f *.o *.d $(DIST)
+	rm -f *.o *.d tags $(DIST)

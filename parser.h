@@ -3,7 +3,6 @@
 #include "bind_power.h"
 #include "ast.h"
 #include "lexer.h"
-#include "types.h"
 #include "util.h"
 #include "util/dynamic_array.h"
 
