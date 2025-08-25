@@ -70,7 +70,7 @@
 
 #define hm_geti(h, k)  hm_get_int((void*)(h), hm_hash(k))
 #define hm_gets(h, k) (hm_geti(h, k) == -1                  \
-		? (typeof(   *h   )){} : (h) + hm_tmp(h))
+		? (typeof(   *h   )){} : (h)[hm_tmp(h)])
 #define hm_get(h, k)  (hm_geti(h, k) == -1                       \
 		? (typeof(h->value)){0} : (h)[hm_tmp(h)].value)
 #define hm_getp(h, k) (hm_geti(h, k) == -1 ? NULL : (h) + hm_tmp(h))
