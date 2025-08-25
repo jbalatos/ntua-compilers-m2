@@ -14,7 +14,6 @@
 #define LT_LEX(l, s) AST_UNUSED_ ## l,
 #define KW_LEX(l, s) AST_UNUSED_ ## l,
 
-
 typedef union ast_pl_data ast_pl_data;
 typedef struct ast_op_data ast_op_data;
 typedef struct ast_name_data ast_name_data;
@@ -98,6 +97,7 @@ static const char* ast_symbol_arr[AST_TYPES_LEN] = {
 #undef TK_LEX
 #undef LT_LEX
 #undef KW_LEX
+#undef KW_PAR
 /* }}} */
 
 inline const char*
