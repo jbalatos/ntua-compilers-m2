@@ -202,7 +202,7 @@ _parser_print_decl (const parser_t *this, const ast_node_t node, const char *end
 			UNSLICE(parser_get_name(this, node.name_data.name)));
 	if (POS_OK(node.name_data.body))
 		parser_print_node(this, node.name_data.body);
-	printf(")"); printf(end);
+	puts(")"); puts(end);
 }
 
 /* }}} */
@@ -341,7 +341,7 @@ _parser_print_node (const parser_t *this, ast_node_pos pos, const char *end)
 	break;	default:
 		printf("%s(%u) -- PENDING", ast_get_type_str(node), node.type);
 	}
-	printf(end);
+	puts(end);
 }/* }}} */
 
 /** parsing functions */
