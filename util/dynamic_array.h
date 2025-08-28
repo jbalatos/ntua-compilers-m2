@@ -9,8 +9,7 @@
 	#define ADDR_OF(x) ((typeof(x)[1]){(x)})
 #endif
 
-/** DYNAMIC ARRAY */
-// {{{
+#pragma region DYNAMIC ARRAY
 #define arr_empty(a)          ((a) == NULL || arr_header(a)->length == 0)
 #define arr_len(a) (ptrdiff_t)((a) ? arr_header(a)->length   : 0ul)
 #define arr_cap(a) (ptrdiff_t)((a) ? arr_header(a)->capacity : 0ul)
@@ -32,12 +31,12 @@
 		(a)[arr_header(a)->length++] = (v))
 #define arr_pop(a)  ((void)(--arr_header(a)->length))
 #define arr_back(a)  (a)[arr_header(a)->length - 1]
-#define arr_ins(a, pos, v) (                                   \
-		arr_maybegrow(a, 1, 0),                        \
-		memmove(a + pos, a + pos + 1,                  \
-			(arr_ulen(a) - pos - 1) * sizeof(*a)), \
-		arr_header(a)->length += 1,                    \
-		a[pos] = (v)                                   )
+#define arr_ins(a, pos, v) (                               \
+		arr_maybegrow(a, 1, 0),                    \
+		memmove(a + pos + 1, a + pos,              \
+			(arr_ulen(a) - pos) * sizeof(*a)), \
+		arr_header(a)->length += 1,                \
+		a[pos] = (v)                               )
 #define arr_del(a, pos) (                                  \
 		memmove(a + pos + 1, a + pos,              \
 			(arr_ulen(a) - pos) * sizeof(*a)), \
@@ -45,10 +44,9 @@
 #define arr_swapdel(a, pos) (           \
 		a[pos] = arr_back(a),   \
 		--arr_header(a)->length )
-// }}}
+#pragma endregion
 
-/** HASH SET */
-/* {{{ */
+#pragma region HASH SET
 #define hs_empty arr_empty
 #define hs_len   arr_len
 #define hs_ulen  arr_ulen
@@ -60,10 +58,9 @@
 #define hs_put(h, k)   hm_puts(h, hm_hash(k), (k))
 #define hs_del         hm_del
 #define hs_free        hm_free
-/* }}} */
+#pragma endregion
 
-/** HASH MAP */
-// {{{
+#pragma region HASH MAP
 #define hm_empty(h) ((h) == NULL)
 #define hm_len      arr_len
 #define hm_ulen     arr_ulen
@@ -79,7 +76,7 @@
 		h, hm_hash(k),                             \
 		((typeof(*h)){ .key = (k), .value = (v) }) \
 		)
-#define hm_puts(h, hash, s) (                                \
+#define hm_puts(h, hash, s...) (                             \
 		hm_maybegrow(h, 1, 0),                       \
 		hm_put_int((void*)h, hash, arr_ulen(h))      \
 		< arr_ulen(h) ? 0 : ++arr_header(h)->length, \
@@ -91,11 +88,9 @@
 #define hm_free(h) ((void)((h)                                                  \
 			? (free(arr_header(h)->hash_table),free(arr_header(h))) \
 			: (0)                                                  ))
+#pragma endregion
 
-// }}}
-
-/** IMPLEMENTATION */
-
+#pragma region DECLARATIONS
 typedef struct {
 	size_t hash;
 	size_t index;
@@ -118,10 +113,11 @@ extern ptrdiff_t hm_put_int(void*, size_t, size_t);
 extern ptrdiff_t hm_del_int(void*, size_t, size_t, size_t);
 extern void      hm_migrate(void*, void*, size_t);
 extern void*     hm_grow_int(void*, size_t, size_t, size_t);
+#pragma endregion
 
 #ifdef DA_IMPLEMENT
-/** arr */
-// {{{
+#pragma region IMPLEMENTATION
+/** dynamic array */
 #define arr_maybegrow(a, to_add, min_cap)                            \
 	(arr_ulen(a) + to_add > arr_ucap(a) || min_cap > arr_ucap(a) \
 	 ? arr_grow(a, to_add, min_cap) : 0                          )
@@ -149,10 +145,8 @@ arr_grow_int (void *a, size_t to_add, size_t min_cap,
 
 	return ret;
 }
-// }}}
 
 /** hash_map */
-// {{{
 static size_t hm_seed = 0x31415926;
 
 #define hm_maybegrow(a, to_add, min_cap)                             \
@@ -325,5 +319,5 @@ hm_grow_int (void *a, size_t to_add, size_t min_cap, size_t elemsize)
 
 	return ret;
 }
-// }}}
+#pragma endregion
 #endif //DA_IMPLEMENT
