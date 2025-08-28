@@ -42,7 +42,7 @@ typedef struct {
 		DANA_TYPES
 		DANA_KEYWORDS
 		DANA_COMMENT,
-		LEX_TYPES_LEN,
+		LEX_TYPE_LEN,
 	} type : 8;
 	lex_buf_pos pos;
 } lex_token_t;
@@ -65,6 +65,7 @@ extern void            lexer_destroy (const lexer_t *this);
 /* lexer_t methods */
 extern lex_token_t     lex_next_token (const lexer_t *this, const lex_token_t *prev);
 extern slice_char_t    lex_get_token (const lexer_t *this, lex_token_t tok);
+extern char            lex_get_char(const lexer_t *this, lex_token_t tok);
 /* symbol table */
 extern const char*     lex_get_type_str (lex_token_t tok);
 
@@ -77,6 +78,7 @@ bool           _lex_matches (const lexer_t *this, lex_buf_pos pos, const char *s
 enum lex_type  _lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len);
 int             isiden (int ch);
 int             ishex (int ch);
+char           _parse_hex (const char buf[2]);
 lex_buf_pos    _lex_skip_spaces (const lexer_t *this, lex_buf_pos pos);
 lex_buf_pos    _lex_scan_char (const lexer_t *this, lex_buf_pos pos);
 lex_token_t    _lex_token_at (const lexer_t *this, lex_buf_pos pos);
@@ -138,19 +140,6 @@ _lex_matches (const lexer_t *this, lex_buf_pos pos, const char *str)
 }
 /* }}} */
 
-/** cleanup trick to turn slices into c-strings */
-/* {{{ */
-typedef struct { char *ptr; char backup; } lex_temp_t;
-void lex_temp_cleanup (lex_temp_t *this) { *this->ptr = this->backup; }
-
-#define LEX_TEMP_SLICE(sl)                                            \
-	lex_temp_t __attribute__((cleanup(lex_temp_cleanup)))         \
-		__LEX__ ## __LINE__ = {                               \
-			(sl).ptr + (sl).length, (sl).ptr[(sl).length] \
-		};                                                    \
-	(sl).ptr[(sl).length] = '\0'
-/* }}} */
-
 /** symbol table */
 /* {{{ */
 static struct { const char *key; enum lex_type value; } *lex_symbol_table;
@@ -184,13 +173,31 @@ static const char* lex_symbol_arr[] = {
 #undef LT
 #undef KW
 
+#define OP_LEX(l, s)
+#define TK_LEX(l, s)
+#define LT_LEX(l, s) lex_symbol_arr[DANA_ ## l] = s;
+#define LT_PAR(p, s)
+#define OP(l, p, s) OP_LEX(l, s)
+#define TK(l, p, s) TK_LEX(l, s)
+#define LT(l, p, s) LT_LEX(l, s)
+
 void __attribute__((constructor))
 create_lex_symbol_table (void)
 {
 	size_t table_size = sizeof(lex_symbol_arr) / sizeof(lex_symbol_arr[0]);
 	for (size_t i=0; i<table_size; ++i) if (lex_symbol_arr[i])
 		hm_put(lex_symbol_table, lex_symbol_arr[i], i);
+	/* add literals on symbol array */
+	DANA_TYPES
 }
+
+#undef OP_LEX
+#undef TK_LEX
+#undef LT_LEX
+#undef LT_PAR
+#undef OP
+#undef TK
+#undef LT
 
 void __attribute__((destructor))
 destroy_lex_symbol_table (void)
@@ -207,7 +214,7 @@ _lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len)
 {
 	slice_char_t sl = _lex_read_str(this, pos, len);
 	if (!sl.ptr) return DANA_ERROR;
-	LEX_TEMP_SLICE(sl);
+	SLICE_TMP_STR(sl);
 	return hm_get(lex_symbol_table, sl.ptr);
 }
 /* }}} */
@@ -234,6 +241,13 @@ isiden (int ch)
 int
 ishex (int ch)
 { return isdigit(ch) || ('a' <= ch && ch <= 'f'); }
+
+inline char
+_parse_hex (const char buf[2])
+{
+	return (('0' <= buf[0] && buf[0] <= '9' ? buf[0] - '0' : 9 + buf[0] - 'a') << 4)
+		+ ('0' <= buf[1] && buf[1] <= '9' ? buf[1] - '0' : 9 + buf[1] - 'a');
+}
 
 lex_buf_pos
 _lex_skip_spaces (const lexer_t *this, lex_buf_pos pos)
@@ -265,6 +279,31 @@ _lex_scan_char (const lexer_t *this, lex_buf_pos pos)
 		}
 	return _lex_read_char(this, closing) == '\''
 		? POS_ADV(closing, 1) : (lex_buf_pos){0};
+}
+
+char
+lex_get_char (const lexer_t *this, lex_token_t tok)
+{
+	slice_char_t sl = lex_get_token(this, tok);
+	char buf[2];
+
+	switch (sl.length) {
+	case 2: return sl.ptr[1];
+	case 3: switch(sl.ptr[2]) {
+		case 'n': return '\n';
+		case 't': return '\t';
+		case 'r': return '\r';
+		case '0': return '\0';
+		case '\\': return '\\';
+		case '\'': return '\'';
+		case '"': return '"';
+		default: _assert(false, "Invalid character passed scan");
+		}
+	case 5:
+		buf[0] = sl.ptr[3]; buf[1] = sl.ptr[4];
+		return _parse_hex(buf);
+	default: _assert(false, "Invalid character passed scan");
+	}
 }
 
 lex_token_t

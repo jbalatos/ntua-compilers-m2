@@ -1,353 +1,953 @@
 #pragma once
 
 #ifdef PARSER_IMPLEMENT
-	#define BP_IMPLEMENT
-	#define AST_IMPLEMENT
 	#define LEX_IMPLEMENT
 	#define DA_IMPLEMENT
 #endif
 
-#include "bind_power.h"
-#include "ast.h"
 #include "lexer.h"
 #include "util.h"
 #include "util/dynamic_array.h"
 
-POS_DECL(lex_token_pos, 24);
+#pragma region TYPES
 
-typedef struct { size_t key; lex_token_pos value; } parser_name_t;
+POS_DECL(par_token_pos, 32);
+POS_DECL(ast_node_pos, 32);
+POS_DECL(par_text_pos, 16);
+
+#define LT_PAR(p, s) AST_ ## p,
+#define KW_PAR(p, s) AST_ ## p,
+#define OP(l, p, s)  AST_ ## p,
+#define TK(l, p, s)  AST_ ## p,
+#define LT(l, p, s)  LT_PAR(p, s)
+#define KW(l, p, s)  KW_PAR(p, s)
+/* just for alignment between lex_type and ast_type */
+#define OP_LEX(l, s) AST_UNUSED_    ## l,
+#define TK_LEX(l, s) AST_UNUSED_    ## l,
+#define LT_LEX(l, s) AST_UNUSED_    ## l,
+#define KW_LEX(l, s) AST_UNUSED_KW_ ## l,
 
 typedef struct {
-	lexer_t        lexer;  /* underlying lexer */
-	lex_token_t   *tokens; /* dynamic array of the tokens created by lexer */
-	lex_token_t   *last;   /* pointer to last element of tokens */
-	ast_node_t    *ast;    /* dynamic array of the AST nodes */
-	ast_node_pos  *extra;  /* dynamic array of slices of AST indices, used by
-		         	 specific node types */
-	char          *text;   /* dynamic array of const strings (0-terminated) */
-	parser_name_t *names;  /* hash map matching name ID => name position */
+	enum ast_type {
+		AST_ERROR = 0,
+		DANA_TYPES
+		DANA_KEYWORDS
+		AST_TYPE_LEN
+	} __attribute__((packed)) type;
+	uint16_t length;
+	union {
+		union {
+			uint16_t num;
+			par_text_pos str;
+			uint16_t name;
+			char ch;
+		} pl_data;
+		struct {
+			uint16_t name;
+			uint16_t args_end;
+		} decl_data;
+		struct {
+			uint16_t name, array;
+		} var_data;
+	};
+} ast_node_t;
+
+#undef OP_LEX
+#undef TK_LEX
+#undef LT_LEX
+#undef KW_LEX
+#undef OP
+#undef TK
+#undef LT
+#undef KW
+#undef LT_PAR
+#undef KW_PAR
+
+typedef struct {
+	enum dtype {
+		DTYPE_INT   = 1,
+		DTYPE_BYTE  = 2,
+		DTYPE_ARRAY = 4,
+		DTYPE_VAR   = 8,
+	} __attribute__((packed)) type;
+	uint16_t dim;
+	uint16_t next;
+} dtype_t;
+
+typedef struct {
+	lexer_t      lexer;  /* underlying lexer */
+	lex_token_t *tokens; /* dynamic array of the tokens created by lexer */
+	ast_node_t  *nodes;  /* dynamic array of the AST nodes */
+	char        *text;   /* dynamic array of const strings (0-terminated) */
+	struct {
+		dtype_t key; uint16_t value;
+	} *types;            /* hash map matching type => id */
+	struct name_record {
+		size_t key; uint16_t value;
+		slice_char_t decl; /* first declaration of name, dbg only */
+	} *names;            /* hash map matching name => id */
+	bool has_peeked;     /* allows peeking */
 } parser_t;
 
-#define extra_for_each(p, ex, i, it, body...) do {                           \
-	for (uint32_t i = 0; i < (ex).length; ++ i) {                        \
-		ast_node_pos it = parser_get_extra(p, POS_ADV((ex).pos, i)); \
-		body                                                         \
-	}                                                                    \
-} while (0)
+typedef struct {
+	ast_node_t *node;
+	const parser_t *parser;
+	ast_node_pos pos, par;
+} ast_node_it;
 
-#define PARSE_CLEANUP         __attribute__((cleanup(parser_destroy)))
-extern parser_t               parser_create (const lexer_t lexer);
-extern void                   parser_destroy (const parser_t *this);
-/* parser methods */
-extern const lex_token_t      parser_get_token (const parser_t *this, lex_token_pos pos);
-extern const ast_node_t       parser_get_node (const parser_t *this, ast_node_pos pos);
-extern const ast_node_pos     parser_get_extra (const parser_t *this, extra_pos pos);
-extern const char*            parser_get_text (const parser_t *this, text_pos pos);
-extern slice_char_t           parser_get_name (const parser_t *this, size_t hash);
-extern slice_char_t           parser_get_value_by_tok (const parser_t *this, lex_token_t tok);
-extern slice_char_t           parser_get_value_by_pos (const parser_t *this, lex_token_pos pos);
-extern ast_extra_data         parser_append_extras (parser_t *this, ast_node_pos *arr);
-extern text_pos               parser_append_text (parser_t *this, lex_token_t tok);
-/* pratt parser */
-#define parser_print_node(this, pos) _parser_print_node(this, pos, "")
-extern ast_node_pos           parse (parser_t *this);
+typedef struct { uint8_t lhs, rhs; } parser_bp_t;
+typedef enum { PREFIX = 1, INFIX, POSTFIX } op_type;
+
+#pragma endregion
+
+#pragma region AST_TYPE PRINTING
+/** declarations */
+extern const char*   ast_get_type_str(ast_node_t node);
 
 #ifdef PARSER_IMPLEMENT
-/** private method definitions */
-lex_token_pos _parser_next_token (parser_t *this);
-lex_token_pos _parser_peek_token (parser_t *this);
-lex_token_pos _parser_pop_token (parser_t *this);
-void          _parser_print_node (const parser_t *this, ast_node_pos pos, const char *end);
-void          _parser_print_decl (const parser_t *this, const ast_node_t node, const char *end);
 
-/** parser constructor - destructor */
-/* {{{ */
-parser_t
-parser_create (const lexer_t lexer)
+#define LT_PAR(p, s) [AST_ ## p] = s,
+#define KW_PAR(p, s) [AST_ ## p] = s,
+#define OP(l, p, s)  [AST_ ## p] = s,
+#define TK(l, p, s)  [AST_ ## p] = s,
+#define LT(l, p, s) LT_PAR(p, s)
+#define KW(l, p, s) KW_PAR(p, s)
+#define OP_LEX(l, s)
+#define TK_LEX(l, s)
+#define KW_LEX(l, s)
+#define LT_LEX(l, s)
+
+static const char* ast_symbol_arr[] = {
+	[AST_ERROR] = NULL,
+	DANA_TYPES
+	DANA_KEYWORDS
+};
+
+#undef OP_LEX
+#undef TK_LEX
+#undef LT_LEX
+#undef KW_LEX
+#undef LT_PAR
+#undef KW_PAR
+#undef OP
+#undef TK
+#undef LT
+#undef KW
+
+#define OP_LEX(l, s)
+#define TK_LEX(l, s)
+#define LT_LEX(l, s)
+#define LT_PAR(p, s) ast_symbol_arr[AST_ ## p] = s;
+#define OP(l, p, s) OP_LEX(l, s)
+#define TK(l, p, s) TK_LEX(l, s)
+#define LT(l, p, s) LT_PAR(p, s)
+
+static void __attribute__((constructor))
+fix_ast_sym_arr (void)
 {
-	parser_t ret = { .lexer = lexer };
-	arr_push(ret.ast, (ast_node_t){});
+	/* add literals on symbol array */
+	DANA_TYPES
+}
+
+#undef OP_LEX
+#undef TK_LEX
+#undef LT_LEX
+#undef LT_PAR
+#undef OP
+#undef TK
+#undef LT
+
+inline const char*
+ast_get_type_str (ast_node_t node)
+{ return ast_symbol_arr[node.type]; }
+
+#endif
+#pragma endregion
+
+#pragma region AST ITERATOR
+
+extern ast_node_it ast_get_child(const parser_t *parser, ast_node_pos parent);
+extern bool        ast_is_child(ast_node_it it);
+extern ast_node_it ast_next_child(ast_node_it it);
+
+#ifdef PARSER_IMPLEMENT
+inline ast_node_it
+ast_get_child (const parser_t *parser, ast_node_pos parent)
+{
+	_assert(parent.pos + 1 < arr_ulen(parser->nodes),
+			"Iterator post array end");
+	return (ast_node_it){
+		.parser = parser,
+		.par = parent,
+		.node = parser->nodes + parent.pos + 1,
+		.pos = POS_ADV(parent, 1),
+	};
+}
+
+inline bool
+ast_is_child (ast_node_it it)
+{ return POS_CMP(it.par, it.pos) < 0; }
+
+inline ast_node_it
+ast_next_child (ast_node_it it)
+{
+	_assert(it.pos.pos < arr_ulen(it.parser->nodes),
+			"Iterator post array end");
+	return (ast_node_it){
+		.parser = it.parser,
+		.par = it.par,
+		.pos = POS_ADV(it.pos, 1),
+		.node = it.node + it.node->length,
+	};
+
+}
+#endif
+#pragma endregion
+
+#pragma region BINDING POWER
+
+extern parser_bp_t prefix_table[LEX_TYPE_LEN],
+		   infix_table[LEX_TYPE_LEN],
+		   postfix_table[LEX_TYPE_LEN];
+
+#define bp_lhs(x, mode) _bp_lhs((x).type, mode)
+#define bp_rhs(x, mode) _bp_rhs((x).type, mode)
+extern uint8_t _bp_lhs(uint8_t type, op_type mode);
+extern uint8_t _bp_rhs(uint8_t type, op_type mode);
+#define bp_operator_is(x, mode)  _bp_operator_is((x).type, mode)
+extern bool    _bp_operator_is(uint8_t type, op_type mode);
+
+#ifdef PARSER_IMPLEMENT
+/** table definitions */
+#define PRE(e, bp) [DANA_ ## e] = { 0, (bp) << 1 },
+#define IN(e, bp, ass)
+#define POST(e, bp)
+parser_bp_t prefix_table[LEX_TYPE_LEN] = { DANA_OPERATORS };
+#undef PRE
+#undef IN
+#undef POST
+
+#define PRE(e, bp)
+#define IN(e, bp, ass) [DANA_ ## e] = { ((bp) << 1) + (ass), ((bp) << 1) + 1 - (ass) },
+#define POST(e, bp)
+parser_bp_t infix_table[LEX_TYPE_LEN] = { DANA_OPERATORS };
+#undef PRE
+#undef IN
+#undef POST
+
+#define PRE(e, bp)
+#define IN(e, bp, ass)
+#define POST(e, bp) [DANA_ ## e] = { (bp) << 1, 0 },
+parser_bp_t postfix_table[LEX_TYPE_LEN] = { DANA_OPERATORS };
+#undef PRE
+#undef IN
+#undef POST
+#endif
+
+/** methods */
+inline uint8_t
+_bp_lhs (uint8_t type, op_type mode)
+{
+	switch (mode) {
+	case PREFIX : return prefix_table[type].lhs;
+	case INFIX  : return infix_table[type].lhs;
+	case POSTFIX: return postfix_table[type].lhs;
+	default     : return 0;
+	}
+}
+
+inline uint8_t
+_bp_rhs (uint8_t type, op_type mode)
+{
+	switch (mode) {
+	case PREFIX : return prefix_table[type].rhs;
+	case INFIX  : return infix_table[type].rhs;
+	case POSTFIX: return postfix_table[type].rhs;
+	default     : return 0;
+	}
+}
+
+inline bool
+_bp_operator_is (uint8_t type, op_type mode)
+{
+	switch (mode) {
+	case PREFIX : return prefix_table[type].rhs;
+	case INFIX  : return infix_table[type].lhs && infix_table[type].rhs;
+	case POSTFIX: return postfix_table[type].lhs;
+	default     : return false;
+	}
+}
+
+#pragma endregion
+
+#pragma region PARSER
+/** method declaration */
+#define PARSER_CLEANUP    __attribute__((cleanup(parser_destroy)))
+extern parser_t           parser_create(const lexer_t lex);
+extern void               parser_destroy(parser_t *this);
+extern ast_node_pos       parse(parser_t *this);
+/** private methods */
+#define par_emplace_node(p, decl...) \
+	par_push_node((p), (ast_node_t){ .length = 1, decl })
+extern const slice_char_t par_get_name(const parser_t *this, uint16_t id);
+extern const ast_node_t   par_get_node(const parser_t *this, ast_node_pos pos);
+extern const char*        par_get_text(const parser_t *this, par_text_pos pos);
+extern const lex_token_t  par_get_token(const parser_t *this, par_token_pos pos);
+extern const dtype_t      par_get_type(const parser_t *this, uint16_t pos);
+extern const slice_char_t par_get_value_by_pos(const parser_t *this, par_token_pos pos);
+extern const slice_char_t par_get_value_by_tok(const parser_t *this, lex_token_t tok);
+extern ast_node_t*        par_node_at(parser_t *this, ast_node_pos pos);
+extern lex_token_t        par_peek_token(parser_t *this);
+extern lex_token_t        par_pop_token(parser_t *this);
+extern lex_token_t        par_pop_require(parser_t *this, enum lex_type type);
+extern uint16_t           par_push_name(parser_t *this, lex_token_t tok);
+extern ast_node_pos       par_push_node(parser_t *this, ast_node_t node);
+extern par_text_pos       par_push_text(parser_t *this, lex_token_t tok);
+extern uint16_t           par_push_type(parser_t *this, dtype_t type);
+extern ast_node_pos       par_reserve_node(parser_t *this);
+extern void               par_reverse_range(parser_t *this, ast_node_pos begin, ast_node_pos end);
+/** parser functions */
+extern ast_node_pos       parse_args(parser_t *this, enum ast_type to_match);
+extern ast_node_pos       parse_block(parser_t *this);
+extern ast_node_pos       parse_decl(parser_t *this, enum lex_type to_match);
+extern ast_node_pos       parse_expr(parser_t *this, uint8_t thrs);
+extern ast_node_pos       parse_local_defs(parser_t *this);
+extern ast_node_pos       parse_lvalue(parser_t *this);
+extern ast_node_pos       parse_stmt(parser_t *this);
+extern ast_node_pos       parse_var(parser_t *this, enum lex_type to_match);
+/** utility macros */
+#define node_at(p, pos) (*par_node_at(p, pos))
+#define par_get_value(p, x) _Generic((x),    \
+	lex_token_t  : par_get_value_by_tok, \
+	par_token_pos: par_get_value_by_pos  \
+)(p, x)
+
+#ifdef PARSER_IMPLEMENT
+#pragma region PARSER METHODS
+parser_t
+parser_create(const lexer_t lex)
+{
+	parser_t ret = { .lexer = lex };
 	arr_push(ret.tokens, (lex_token_t){});
-	arr_push(ret.extra, (ast_node_pos){});
+	arr_push(ret.nodes, (ast_node_t){});
 	arr_push(ret.text, '\0');
 	return ret;
 }
 
 void
-parser_destroy (const parser_t *this)
+parser_destroy (parser_t *this)
 {
 	arr_free(this->tokens);
-	arr_free(this->ast);
-	arr_free(this->extra);
+	arr_free(this->nodes);
 	arr_free(this->text);
 	hm_free(this->names);
-	lexer_destroy(&this->lexer);
-}
-/* }}} */
-
-/** parser methods */
-/* {{{ */
-const lex_token_t
-parser_get_token (const parser_t *this, lex_token_pos pos)
-{
-	_assert(pos.pos < arr_ulen(this->tokens),
-			"Token %u out of bounds (%lu)",
-			pos.pos, arr_ulen(this->tokens));
-	return this->tokens[pos.pos];
+	hm_free(this->types);
 }
 
-const ast_node_t
-parser_get_node (const parser_t *this, ast_node_pos pos)
+inline ast_node_pos
+parse (parser_t *this)
 {
-	_assert(pos.pos < arr_ulen(this->ast),
-			"Node %u out of bounds (%lu)",
-			pos.pos, arr_ulen(this->ast));
-	return this->ast[pos.pos];
+	return parse_decl(this, DANA_KW_DEF);
 }
 
-const ast_node_pos
-parser_get_extra (const parser_t *this, extra_pos pos)
+inline const slice_char_t
+par_get_name (const parser_t *this, uint16_t id)
 {
-	_assert(pos.pos < arr_ulen(this->extra),
-			"Extra %u out of bounds (%lu)",
-			pos.pos, arr_ulen(this->extra));
-	return this->extra[pos.pos];
+	if (id == 0) return (slice_char_t){};
+	for (size_t i=0; i<arr_ucap(this->names); ++i)
+		if (this->names[i].value == id) return this->names[i].decl;
+	_assert(false, "Name ID %u not found", id);
 }
 
-const char*
-parser_get_text (const parser_t *this, text_pos pos)
+inline const ast_node_t
+par_get_node (const parser_t *this, ast_node_pos pos)
 {
-	_assert(pos.pos < arr_ulen(this->text),
-			"Text %u out of bounds (%lu)",
+	_assert(0 <= pos.pos && pos.pos < arr_ulen(this->nodes),
+			"Node index %u out of bounds [0, %lu]",
+			pos.pos, arr_ulen(this->nodes));
+	return this->nodes[pos.pos];
+}
+
+inline const char*
+par_get_text (const parser_t *this, par_text_pos pos)
+{
+	_assert(0 <= pos.pos && pos.pos < arr_ulen(this->text),
+			"Text index %u out of bounds [0, %lu]",
 			pos.pos, arr_ulen(this->text));
 	return this->text + pos.pos;
 }
 
-inline slice_char_t
-parser_get_name (const parser_t *this, size_t hash)
-{ return  parser_get_value_by_pos(this, hm_get(this->names, hash)); }
+inline const lex_token_t
+par_get_token (const parser_t *this, par_token_pos pos)
+{
+	_assert(0 <= pos.pos && pos.pos < arr_ulen(this->tokens),
+			"Token index %u out of bounds [0, %lu]",
+			pos.pos, arr_ulen(this->tokens));
+	return this->tokens[pos.pos];
+}
 
-inline slice_char_t
-parser_get_value_by_tok (const parser_t *this, lex_token_t tok)
+inline const dtype_t
+par_get_type (const parser_t *this, uint16_t id)
+{
+	for (size_t i=0; i<arr_ucap(this->types); ++i)
+		if (this->types[i].value == id) return this->types[i].key;
+	_assert(false, "Type ID %u not found", id);
+}
+
+inline const slice_char_t
+par_get_value_by_pos (const parser_t *this, par_token_pos pos)
+{
+	return lex_get_token(&this->lexer, par_get_token(this, pos));
+}
+
+inline const slice_char_t
+par_get_value_by_tok (const parser_t *this, lex_token_t tok)
 {
 	return lex_get_token(&this->lexer, tok);
 }
 
-inline slice_char_t
-parser_get_value_by_pos (const parser_t *this, lex_token_pos pos)
+ast_node_t*
+par_node_at (parser_t *this, ast_node_pos pos)
 {
-	return parser_get_value_by_tok(this, parser_get_token(this, pos));
+	_assert(0 <= pos.pos && pos.pos < arr_ulen(this),
+			"Invalid node at(): %u >= %lu",
+			pos.pos, arr_ulen(this->nodes));
+	return this->nodes + pos.pos;
 }
 
-ast_extra_data
-parser_append_extras (parser_t *this, ast_node_pos *arr)
+lex_token_t
+par_peek_token (parser_t *this)
 {
-	ast_extra_data ret = {
-		.length = arr_ulen(arr),
-		.pos = { arr_ulen(this->extra) },
-	};
-	for (uint32_t i=0; i<arr_ulen(arr); ++i) arr_push(this->extra, arr[i]);
-	arr_free(arr);
+	lex_token_t ret = par_pop_token(this);
+	this->has_peeked = true;
+	return ret;
+}
+
+lex_token_t
+par_pop_require (parser_t *this, enum lex_type type)
+{
+	lex_token_t ret = par_pop_token(this);
+	_assert(ret.type == type, "REQUIRE ERR:\tExpected %s, got %s",
+			lex_symbol_arr[type], lex_get_type_str(ret));
 	return ret;
 }
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsequence-point"
-lex_token_pos
-_parser_next_token (parser_t *this)
+lex_token_t
+par_pop_token (parser_t *this)
 {
-	lex_token_t tok = lex_next_token(&this->lexer, this->last);
-	if (arr_ulen(this->tokens) == 1 || POS_CMP(arr_back(this->tokens).pos, tok.pos))
-		arr_push(this->tokens, tok);
-	this->last = &arr_back(this->tokens);
-	return (lex_token_pos){ arr_ulen(this->tokens) - 1 };
+	if (!this->has_peeked) {
+		if (arr_ulen(this->tokens) == 1)
+			arr_push(this->tokens, lex_next_token(
+						&this->lexer, NULL
+						));
+		else
+			arr_push(this->tokens, lex_next_token(
+					&this->lexer, &arr_back(this->tokens)
+					));
+	}
+	this->has_peeked = 0;
+	return arr_back(this->tokens);
 }
 #pragma GCC diagnostic pop
 
-lex_token_pos
-_parser_peek_token (parser_t *this)
+uint16_t
+par_push_name (parser_t *this, lex_token_t tok)
 {
-	if (arr_ulen(this->tokens) == 1 || !POS_CMP(arr_back(this->tokens).pos, this->last->pos))
-		arr_push(this->tokens, lex_next_token(&this->lexer, this->last));
-	this->last = &(this->tokens[arr_ulen(this->tokens) - 2]);
-	return (lex_token_pos){ arr_ulen(this->tokens) - 1 };
+	uint16_t id;
+	slice_char_t sl = par_get_value(this, tok);
+	size_t hash = hm_hash_bytes(sl.ptr, sl.length);
+
+	if ((id = hm_get(this->names, hash)) == 0) {
+		id = hm_ulen(this->names) + 1;
+		hm_put(this->names, hash, id);
+		hm_getp(this->names, hash)->decl = sl;
+	}
+	printf("NAME: %10.*s - %u\n", UNSLICE(sl), id);
+	return id;
 }
 
-text_pos
-parser_append_text (parser_t *this, lex_token_t tok)
+inline ast_node_pos
+par_push_node (parser_t *this, ast_node_t node)
 {
-	slice_char_t sl = parser_get_value_by_tok(this, tok);
-	text_pos ret = {0};
+	arr_push(this->nodes, node);
+	return (ast_node_pos){ arr_ulen(this->nodes) - 1 };
+}
 
-	if (!sl.length) return ret;
-	ret.pos = arr_ulen(this->text);
-	for (uint32_t i=0; i<sl.length; ++i)
-		arr_push(this->text, sl.ptr[i]);
+par_text_pos
+par_push_text (parser_t *this, lex_token_t tok)
+{
+	slice_char_t sl = par_get_value(this, tok);
+	par_text_pos ret = { arr_ulen(this->text) };
+	uint32_t i;
+
+	for (i = 0; i < sl.length; ++i) arr_push(this->text, sl.ptr[i]);
 	arr_push(this->text, '\0');
 	return ret;
 }
 
-lex_token_pos
-_parser_pop_token (parser_t *this)
+uint16_t
+par_push_type (parser_t *this, dtype_t type)
 {
-	assert(arr_ulen(this->tokens) > 1 && this->last != &arr_back(this->tokens));
-	this->last = &arr_back(this->tokens);
-	return (lex_token_pos){ arr_ulen(this->tokens) - 1 };
-}
-
-void
-_parser_print_decl (const parser_t *this, const ast_node_t node, const char *end)
-{
-	printf("%.*s (params: ",
-			UNSLICE(parser_get_name(this, node.name_data.name)));
-	if (POS_OK(node.name_data.body))
-		parser_print_node(this, node.name_data.body);
-	printf(")"); printf(end);
-}
-
-/* }}} */
-
-/** parser print */
-void
-_parser_print_node (const parser_t *this, ast_node_pos pos, const char *end)
-{/* {{{ */
-	ast_node_t node = parser_get_node(this, pos);
-	lex_token_pos tok;
-
-	switch (node.type) {
-	/* literals */
-	case AST_NUMBER:
-		printf("%d", node.pl_data.num);
-	break;	case AST_BOOL:
-		printf("%s", node.pl_data.num ? "true" : "false");
-	break;	case AST_CHAR:
-		printf("'%c'", node.pl_data.ch);
-	break;	case AST_STRING:
-		printf("\"%s\"", parser_get_text(this, node.pl_data.str));
-	break;	case AST_NAME:
-		tok = hm_get(this->names, node.pl_data.name);
-		printf("#%.*s", UNSLICE(parser_get_value_by_pos(this, tok)));
-	/* variables */
-	break;	case AST_INT ... AST_BYTE:
-		case AST_REF_INT ... AST_ARR_BYTE:
-		printf("(%s %.*s", ast_get_type_str(node),
-				UNSLICE(parser_get_name(this, node.var_data.name)));
-		if (node.type == AST_ARR_INT || node.type == AST_ARR_BYTE)
-			for (uint8_t i=0; i<4; ++i) {
-				if (node.var_data.dim[i])
-					printf("[%u]", node.var_data.dim[i]);
-				else if (i == 0)
-					printf("[]");
-			}
-		printf(")");
-		if (POS_OK(node.var_data.next))
-			parser_print_node(this, node.var_data.next);
-	/* operators */
-	break;	case AST_PLUS ... AST_CMP_GEQ:
-		printf("(%s ", ast_get_type_str(node));
-		_parser_print_node(this, node.op_data.lhs, " ");
-		_parser_print_node(this, node.op_data.rhs, ")");
-	break;	case AST_ARR_AT:
-		_parser_print_node(this, node.op_data.lhs, "[");
-		_parser_print_node(this, node.op_data.rhs, "]");
-	/* func call */
-	break;	case AST_FUNC:
-		printf("func-call %.*s", UNSLICE(parser_get_name(this, node.name_data.name)));
-		_parser_print_node(this, node.name_data.body, ")");
-	break;	case AST_PROC:
-		printf("proc-call %.*s", UNSLICE(parser_get_name(this, node.name_data.name)));
-		_parser_print_node(this, node.name_data.body, ")");
-	break;	case AST_ARGS:
-		printf("(args: ");
-		extra_for_each(this, node.extra_data, i, it,
-			if (i) printf(", ");
-			parser_print_node(this, it);
-		);
-		printf(")");
-	/* function decl-def */
-	break;	case AST_DECL_PROC ... AST_DECL_BYTE:
-		printf("(%s ", ast_get_type_str(node));
-		_parser_print_decl(this, node, ")");
-	break;	case AST_DEF_PROC ... AST_DEF_BYTE:
-		printf("(%s ", ast_get_type_str(node));
-		_parser_print_decl(this, parser_get_node(this, node.op_data.lhs),
-				" : ");
-		_parser_print_node(this, node.op_data.rhs, ")");
-	break; case AST_LOCAL_DEF:
-		if (node.extra_data.length > 1) {
-			printf("(defs:");
-			extra_for_each(this, node.extra_data, i, it,
-				if (i == node.extra_data.length - 1) break;
-				printf(" ");
-				parser_print_node(this, it);
-			);
-			printf(")");
-		} else {
-			printf("(no defs)");
-		}
-		printf(" => ");
-		parser_print_node(this, parser_get_extra(this, POS_ADV(
-						node.extra_data.pos,
-						node.extra_data.length - 1)));
-	/* statements */
-	break;	case AST_BLOCK:
-		printf("[");
-		extra_for_each(this, node.extra_data, i, it,
-			if (i) printf(", ");
-			parser_print_node(this, it);
-		);
-		printf("]");
-	break; case AST_BLOCK_SIMPLE:
-		printf("[");
-		_parser_print_node(this, node.name_data.body, "]");
-	break;	case AST_SKIP:
-		case AST_EXIT:
-		case AST_BREAK:
-		case AST_CONT:
-		printf("(%s", ast_get_type_str(node));
-		if (node.name_data.name)
-			printf(" #%.*s", UNSLICE(parser_get_name(this,
-							node.name_data.name)));
-		printf(")");
-	break;	case AST_RETURN:
-		printf("(return ");
-		_parser_print_node(this, node.op_data.lhs, ")");
-	break;	case AST_ASSIGN:
-		printf("(");
-		_parser_print_node(this, node.op_data.lhs, " := ");
-		_parser_print_node(this, node.op_data.rhs, ")");
-	break;	case AST_LOOP:
-		printf("(loop ");
-		if (node.name_data.name)
-			printf("#%.*s ", UNSLICE(parser_get_name(this,
-							node.name_data.name)));
-		_parser_print_node(this, node.name_data.body, ")");
-	break;	case AST_COND_SIMPLE:
-		printf("(if ");
-		_parser_print_node(this, node.op_data.lhs, " => ");
-		_parser_print_node(this, node.op_data.rhs, ")");
-	break;	case AST_COND:
-		printf("(if");
-		extra_for_each(this, node.extra_data, i, it,
-			if (i % 2 == 0 && i != node.extra_data.length - 1) {
-				printf(" ");
-				_parser_print_node(this, it, " => ");
-			} else {
-				if (i % 2 == 0) printf(" else => ");
-				parser_print_node(this, it);
-			}
-		);
-		printf(")");
-	break;	default:
-		printf("%s(%u) -- PENDING", ast_get_type_str(node), node.type);
+	uint16_t id;
+	if ((id = hm_get(this->types, type)) == 0) {
+		id = hm_ulen(this->types) + 1;
+		hm_put(this->types, type, id);
 	}
-	printf(end);
-}/* }}} */
-
-/** parsing functions */
-#include "pratt_parser.c"
+	return id;
+}
 
 inline ast_node_pos
-parse (parser_t *this)
-{ return _parse_decl(this, DANA_KW_DEF); }
-#endif // PARSER_IMPLEMENT
+par_reserve_node (parser_t *this)
+{
+	return par_push_node(this, (ast_node_t){0});
+}
+
+void
+par_reverse_range (parser_t *this, ast_node_pos begin, ast_node_pos end)
+{
+	uint32_t length = POS_DIFF(begin, end), i;
+
+	for (i = 0; i < length / 2; ++i)
+		swap(this->nodes[begin.pos + i], this->nodes[end.pos - i]);
+}
+#pragma endregion
+
+#pragma region PRATT FUNCTIONS
+ast_node_pos
+parse_args (parser_t *this, enum ast_type to_match)
+{
+	ast_node_pos node = par_emplace_node(this, .type = AST_ARGS);
+
+	if (to_match == AST_FUNC_CALL &&
+			par_peek_token(this).type == DANA_CLOSE_PAREN)
+		return node;
+
+	dbg(node_at(this, node).length, "ARG:\tno. %u");
+	parse_expr(this, 0);
+	node_at(this, node).length += 1;
+
+	while (par_peek_token(this).type == DANA_COMMA) {
+		par_pop_token(this);
+		dbg(node_at(this, node).length, "ARG:\tno. %u");
+		parse_expr(this, 0);
+		node_at(this, node).length += 1;
+	}
+
+	return node;
+}
+
+ast_node_pos
+parse_block (parser_t *this)
+{
+	ast_node_pos node;
+
+	switch (par_peek_token(this).type) {
+	case DANA_KW_BEGIN:
+		par_pop_token(this);
+		node = par_emplace_node(this, .type = AST_BLOCK);
+		while (par_peek_token(this).type != DANA_KW_END) {
+			_assert(par_peek_token(this).type != DANA_EOF,
+					"EOF before block end");
+			node_at(this, node).length +=
+				node_at(this, parse_stmt(this)).length;
+		}
+		par_pop_token(this);
+		return node;
+	default:
+		node = par_emplace_node(this, .type = AST_BLOCK_SIMPLE);
+		node_at(this, node).length +=
+			node_at(this, parse_stmt(this)).length;
+		return node;
+	}
+}
+
+ast_node_pos
+parse_cond (parser_t *this)
+{
+	ast_node_pos node;
+
+	par_pop_require(this, DANA_KW_IF);
+
+	node = par_emplace_node(this, .type = AST_COND);
+	node_at(this, node).length += node_at(this, parse_expr(this, 0)).length;
+	par_pop_require(this, DANA_COLON);
+	node_at(this, node).length += node_at(this, parse_block(this)).length;
+
+	while (par_peek_token(this).type == DANA_KW_ELIF) {
+		par_pop_token(this);
+		node_at(this, node).length += node_at(this, parse_expr(this, 0)).length;
+		par_pop_require(this, DANA_COLON);
+		node_at(this, node).length += node_at(this, parse_block(this)).length;
+	}
+
+	if (par_peek_token(this).type == DANA_KW_ELSE) {
+		par_pop_token(this);
+		par_pop_require(this, DANA_COLON);
+		node_at(this, node).length += node_at(this, parse_block(this)).length;
+	}
+
+	return node;
+}
+
+ast_node_pos
+parse_decl (parser_t *this, enum lex_type to_match)
+{
+	ast_node_pos node;
+	uint16_t id;
+
+	_assert(to_match == DANA_KW_DECL || to_match == DANA_KW_DEF,
+			"Invalid parameter on func-decl");
+	par_pop_require(this, to_match);
+	id = par_push_name(this, par_pop_require(this, DANA_NAME));
+	node = par_emplace_node(this, .type = to_match, .decl_data.name = id);
+
+	if (par_peek_token(this).type == DANA_KW_IS) {
+		par_pop_token(this);
+		node_at(this, node).type += SWITCH(par_pop_token(this).type, int, {
+		case DANA_KW_INT : return 1;
+		case DANA_KW_BYTE: return 2;
+		default: _assert(false, "Invalid return type");
+		});
+	}
+
+	printf("DEF:\t %s\t(%u) %.*s\n", ast_get_type_str(node_at(this, node)),
+			node_at(this, node).decl_data.name,
+			UNSLICE(par_get_name(this, node_at(this, node).decl_data.name))
+			);
+
+	if (par_peek_token(this).type == DANA_COLON)
+		do {
+			par_pop_token(this);
+			dbg(lex_get_type_str(par_peek_token(this)), "%s");
+			node_at(this, node).length += node_at(this,
+					parse_var(this, DANA_KW_AS)).length;
+		} while (par_peek_token(this).type == DANA_COMMA);
+
+	if (to_match == DANA_KW_DEF) {
+		node_at(this, node).decl_data.args_end = node_at(this, node).length;
+		node_at(this, node).length +=
+			node_at(this, parse_local_defs(this)).length;
+		node_at(this, node).length +=
+			node_at(this, parse_block(this)).length;
+	}
+
+	return node;
+}
+
+ast_node_pos
+parse_expr (parser_t *this, uint8_t thrs)
+{
+	ast_node_pos node = {0};
+	lex_token_t tok = par_pop_token(this);
+
+	dbg(lex_get_type_str(tok), "EXPR:\tfirst %s");
+	if (tok.type == DANA_NUMBER) {
+		slice_char_t sl = par_get_value(this, tok);
+		SLICE_TMP_STR(sl);
+		node = par_emplace_node(this,
+			.type = AST_NUMBER, .pl_data.num = atoi(sl.ptr),
+		);
+	} else node = SWITCH(tok.type, ast_node_pos, {
+	/* literal */
+	case DANA_KW_TRUE ... DANA_KW_FALSE:
+		return par_emplace_node(this, .type = tok.type);
+	case DANA_CHAR:
+		return par_emplace_node(this,
+			.type = AST_CHAR,
+			.pl_data.ch = lex_get_char(&this->lexer, tok)
+		);
+	/* lvalue */
+	case DANA_STRING:
+	case DANA_NAME:
+		this->has_peeked = true; /* unpop token */
+		return parse_lvalue(this);
+	/* prefix operators */
+	case DANA_OPEN_PAREN:
+		node = parse_expr(this, 0);
+		par_pop_require(this, DANA_CLOSE_PAREN);
+		return node;
+	default:
+		_assert(bp_operator_is(tok, PREFIX), "Invalid start of expr");
+		node = par_emplace_node(this, .type = tok.type, .length = 1);
+		node_at(this, node).length += node_at(this,
+				parse_expr(this, bp_rhs(tok, PREFIX))).length;
+		return node;
+	});
+
+	while (par_peek_token(this).type != DANA_EOF) {
+		tok = par_peek_token(this);
+		dbg(lex_get_type_str(tok), "EXPR:\tloop %s");
+
+		if (bp_operator_is(tok, POSTFIX)) {
+			if (bp_lhs(tok, POSTFIX) < thrs) break;
+			par_pop_token(this);
+			if (tok.type == DANA_OPEN_PAREN) {
+				_assert(node_at(this, node).type == AST_NAME,
+						"Func-call must be done on name");
+				uint16_t id = node_at(this, node).pl_data.name;
+
+				arr_pop(this->nodes); /* remove node */
+				node = par_emplace_node(this,
+					.type = AST_FUNC_CALL,
+					.pl_data.name = id, .length = 1,
+				);
+				node_at(this, node).length += node_at(this,
+						parse_args(this, AST_FUNC_CALL)).length;
+				par_pop_require(this, DANA_CLOSE_PAREN);
+			} else {
+				uint32_t length = node_at(this, node).length;
+				arr_ins(this->nodes, node.pos, ((ast_node_t){
+					.type = tok.type,
+					.length = 1 + length,
+				}));
+			}
+		} else if (bp_operator_is(tok, INFIX)) {
+			if (bp_lhs(tok, INFIX) < thrs) break;
+			par_pop_token(this);
+			uint32_t length = node_at(this, node).length;
+			arr_ins(this->nodes, node.pos, ((ast_node_t){
+				.type = tok.type,
+				.length = 1 + length,
+			}));
+			node_at(this, node).length += node_at(this,
+					parse_expr(this, bp_rhs(tok, INFIX))).length;
+		} else {
+			dbg(lex_get_type_str(tok), "EXPR:\tbreaking at %s");
+		}
+		break;
+	}
+
+	return node;
+}
+
+ast_node_pos
+parse_local_defs (parser_t *this)
+{
+	ast_node_pos node = par_emplace_node(this, .type = AST_LOCAL_DEF);
+	enum lex_type type;
+
+	while (true) {
+		switch ((type = par_peek_token(this).type)) {
+		case DANA_KW_DECL:
+		case DANA_KW_DEF:
+			node_at(this, node).length += node_at(this,
+					parse_decl(this, type)).length;
+			continue;
+		case DANA_KW_VAR:
+			par_pop_token(this);
+			node_at(this, node).length += node_at(this,
+					parse_var(this, DANA_KW_IS)).length;
+			continue;
+		default:
+		}
+		break;
+	}
+	return node;
+}
+
+ast_node_pos
+parse_lvalue (parser_t *this)
+{
+	ast_node_pos node;
+	lex_token_t tok = par_pop_token(this);
+
+	node = SWITCH(tok.type, ast_node_pos, {
+	case DANA_NAME:
+		return par_emplace_node(this,
+			.type = AST_NAME,
+			.pl_data.name = par_push_name(this, tok)
+		);
+	case DANA_STRING:
+		return par_emplace_node(this,
+			.type = AST_STRING,
+			.pl_data.str = par_push_text(this, tok)
+		);
+	default:
+		_assert(false, "Invalid token for begin of lvalue: %s",
+				lex_get_type_str(tok));
+	});
+
+	if (par_peek_token(this).type == DANA_OPEN_BRACKET) {
+		_assert(node_at(this, node).type == AST_NAME,
+				"Only names have [] operator");
+		node_at(this, node).type = AST_ARRAY_AT;
+
+		while (par_pop_token(this).type == DANA_OPEN_BRACKET) {
+			node_at(this, node).length += par_get_node(
+					this, parse_expr(this, 0)
+					).length;
+			par_pop_require(this, DANA_CLOSE_BRACKET);
+		}
+	}
+
+	return node;
+}
+
+ast_node_pos
+parse_stmt (parser_t *this)
+{
+	ast_node_pos node;
+	lex_token_t tok;
+	uint16_t id, length = 0;
+
+	if (par_peek_token(this).type == DANA_KW_IF) return parse_cond(this);
+	else switch ((tok = par_pop_token(this)).type) {
+	case DANA_KW_SKIP:
+	case DANA_KW_EXIT:
+		return par_emplace_node(this, .type = tok.type);
+	case DANA_KW_RETURN:
+		par_pop_require(this, DANA_COLON);
+		node = par_emplace_node(this, .type = AST_RETURN);
+		length = node_at(this, parse_expr(this, 0)).length;
+		node_at(this, node).length += length;
+		return node;
+	case DANA_KW_BREAK:
+	case DANA_KW_CONT:
+		node = par_emplace_node(this, .type = tok.type);
+		if (par_peek_token(this).type == DANA_COLON) {
+			par_pop_token(this);
+			id = par_push_name(this, par_pop_token(this));
+			node_at(this, node).pl_data.name = id;
+		}
+		return node;
+	case DANA_KW_LOOP:
+		node = par_emplace_node(this, .type = AST_LOOP);
+		if (par_peek_token(this).type == DANA_NAME) {
+			id = par_push_name(this, par_pop_token(this));
+			node_at(this, node).pl_data.name = id;
+		}
+		par_pop_require(this, DANA_COLON);
+		length = node_at(this, parse_block(this)).length;;
+		node_at(this, node).length += length;
+		return node;
+	/* assign - proc-call */
+	case DANA_NAME:
+		this->has_peeked = true; /* turn previous pop into peek */
+		node = parse_lvalue(this);
+
+		switch (par_peek_token(this).type) {
+		case DANA_ASSIGN:
+			par_pop_token(this);
+			length = node_at(this, node).length;
+			arr_ins(this->nodes, node.pos, ((ast_node_t){
+				.type = AST_ASSIGN,
+				.length = 1 + length,
+			}));
+			// par_reserve_node(this);
+			// for (uint32_t i = node.pos + 1; i < arr_ulen(this->nodes); ++i)
+				// this->nodes[i] = this->nodes[i - 1];
+			// this->nodes[node.pos] = (ast_node_t){
+				// .type = AST_ASSIGN,
+				// .length = 1 + node_at(this, POS_ADV(node, 1)).length,
+			// };
+			length = node_at(this, parse_expr(this, 0)).length;
+			node_at(this, node).length += length;
+			return node;
+		case DANA_COLON:
+			_assert(node_at(this, node).type == AST_NAME,
+					"proc-call must be on name");
+			par_pop_token(this);
+			length = node_at(this,
+					parse_args(this, AST_PROC_CALL)).length;
+		default:
+			id = node_at(this, node).pl_data.name;
+			node_at(this, node) = (ast_node_t){
+				.type = AST_PROC_CALL,
+				.pl_data.name = id,
+				.length = 1 + length,
+			};
+			return node;
+		}
+	default: _assert(false, "Invalid token at start of stmt");
+	}
+}
+
+ast_node_pos
+parse_var (parser_t *this, enum lex_type to_match)
+{
+	ast_node_pos node = par_emplace_node(this, .type = AST_VARS);
+	ast_node_t template = { .length = 1 };
+	lex_token_t tok;
+	enum dtype arr_type;
+	uint16_t *names = {0}, *dimen = {0};
+
+	do arr_push(names, par_push_name(this, par_pop_require(this, DANA_NAME)));
+	while (par_peek_token(this).type == DANA_NAME);
+	par_pop_require(this, to_match);
+	/* base types */
+	switch ((tok = par_pop_token(this)).type) {
+	case DANA_KW_REF:
+		_assert(to_match == DANA_KW_AS, "ref not allowed in this type def");
+		switch((tok = par_pop_token(this)).type) {
+		case DANA_KW_INT:
+			template.type = AST_REF_INT;
+			break;
+		case DANA_KW_BYTE:
+			template.type = AST_REF_BYTE;
+			break;
+		default: _assert(false, "Invalid ref type");
+		}
+		break;
+	case DANA_KW_INT ... DANA_KW_BYTE:
+		template.type = tok.type;
+		break;
+	default: _assert(false, "Invalid var type");
+	}
+	/* array */
+	if (template.type != AST_ERROR &&
+			par_peek_token(this).type == DANA_OPEN_BRACKET) {
+		arr_type = DTYPE_ARRAY | (
+			template.type == AST_INT ? DTYPE_INT :
+			template.type == AST_BYTE ? DTYPE_BYTE :
+			(_assert(false, "Cannot make ref of array"), 0)
+		);
+		template.type = AST_ARRAY;
+
+		while (par_peek_token(this).type == DANA_OPEN_BRACKET) {
+			par_pop_token(this);
+			switch ((tok = par_pop_token(this)).type) {
+			case DANA_CLOSE_BRACKET:
+				_assert(arr_empty(dimen), "Only first dimension can be variable");
+				printf("\t\tVar-array\n");
+				arr_type |= DTYPE_VAR;
+				arr_push(dimen, 0);
+				break;
+			case DANA_NUMBER:
+				{
+					slice_char_t sl = par_get_value(this, tok);
+					SLICE_TMP_STR(sl);
+					arr_push(dimen, atoi(sl.ptr));
+				}
+				dbg(arr_back(dimen), "%u");
+				par_pop_require(this, DANA_CLOSE_BRACKET);
+				break;
+			default: _assert(false, "Invalid arr-def subscript type");
+			}
+		}
+
+		template.var_data.array = par_push_type(this, (dtype_t){
+			.type = arr_type & (~DTYPE_ARRAY) & (~DTYPE_VAR)
+		});
+		for (; !arr_empty(dimen); arr_pop(dimen)) {
+			template.var_data.array = par_push_type(this, (dtype_t){
+				.type = arr_ulen(dimen) == 1
+					? arr_type : arr_type & (~DTYPE_VAR),
+				.dim = arr_back(dimen),
+				.next = template.var_data.array,
+			});
+		}
+	}
+
+	for (uint32_t i=0; i<arr_ulen(names); ++i) {
+		template.var_data.name = names[i];
+		node_at(this, node).length += node_at(this,
+				par_push_node(this, template)).length;
+	}
+
+	return node;
+}
+#pragma endregion
+#endif
+#pragma endregion
