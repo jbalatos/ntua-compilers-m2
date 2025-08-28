@@ -15,14 +15,19 @@
 
 #define LEX_SPACES_PER_TAB 4
 
+#pragma region TYPES
+
 typedef slice(char) slice_char_t;
 POS_DECL(lex_buf_pos, 24);
 
 typedef struct {
-	slice_char_t buffer;
+	slice_char_t   buffer;
 	const alloc_t *alloc;
-	const char *fname;
+	const char    *fname;
+	lex_buf_pos   *lines; /* dynamic array of beginnings-of-line */
 } lexer_t;
+
+typedef struct { uint16_t line, column; } file_pos;
 
 #define OP_LEX(l, s) DANA_    ## l,
 #define TK_LEX(l, s) DANA_    ## l,
@@ -58,90 +63,37 @@ typedef struct {
 #undef LT_PAR
 #undef KW_PAR
 
-/* lexer_t init */
+#pragma endregion
+
+#pragma region METHOD DELCARATIONS
 #define LEX_CLEANUP    __attribute__((cleanup(lexer_destroy)))
-extern lexer_t         lexer_create (const alloc_t *alloc, const char *fname);
-extern void            lexer_destroy (const lexer_t *this);
-/* lexer_t methods */
-extern lex_token_t     lex_next_token (const lexer_t *this, const lex_token_t *prev);
-extern slice_char_t    lex_get_token (const lexer_t *this, lex_token_t tok);
+extern lexer_t         lexer_create(const alloc_t *alloc, const char *fname);
+extern void            lexer_destroy(const lexer_t *this);
+extern lex_token_t     lex_next_token(lexer_t *this, const lex_token_t *prev);
+extern slice_char_t    lex_get_token(const lexer_t *this, lex_token_t tok);
 extern char            lex_get_char(const lexer_t *this, lex_token_t tok);
-/* symbol table */
-extern const char*     lex_get_type_str (lex_token_t tok);
+extern const char*     lex_get_type_str(lex_token_t tok);
 
 #ifdef LEX_IMPLEMENT
 /** private declarations */
-bool           _lex_eof (const lexer_t *this, lex_buf_pos pos);
-char           _lex_read_char (const lexer_t *this, lex_buf_pos pos);
-slice_char_t   _lex_read_str (const lexer_t *this, lex_buf_pos pos, uint32_t length);
-bool           _lex_matches (const lexer_t *this, lex_buf_pos pos, const char *str);
-enum lex_type  _lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len);
-int             isiden (int ch);
-int             ishex (int ch);
-char           _parse_hex (const char buf[2]);
-lex_buf_pos    _lex_skip_spaces (const lexer_t *this, lex_buf_pos pos);
-lex_buf_pos    _lex_scan_char (const lexer_t *this, lex_buf_pos pos);
-lex_token_t    _lex_token_at (const lexer_t *this, lex_buf_pos pos);
-lex_buf_pos    _lex_token_end (const lexer_t *this, lex_token_t tok); /* exclusive */
+bool           _lex_eof(const lexer_t *this, lex_buf_pos pos);
+char           _lex_read_char(const lexer_t *this, lex_buf_pos pos);
+slice_char_t   _lex_read_str(const lexer_t *this, lex_buf_pos pos, uint32_t length);
+bool           _lex_matches(const lexer_t *this, lex_buf_pos pos, const char *str);
+enum lex_type  _lex_scan_sym_table(const lexer_t *this, lex_buf_pos pos, uint32_t len);
+int             isiden(int ch);
+int             ishex(int ch);
+char           _parse_hex(const char buf[2]);
+lex_buf_pos    _lex_skip_spaces(lexer_t *this, lex_buf_pos pos);
+lex_buf_pos    _lex_scan_char(const lexer_t *this, lex_buf_pos pos);
+lex_token_t    _lex_token_at(const lexer_t *this, lex_buf_pos pos);
+lex_buf_pos    _lex_token_end(const lexer_t *this, lex_token_t tok); /* exclusive */
+#endif
+#pragma endregion
 
-/** lexer_t constructor - destructor */
-/* {{{ */
-lexer_t
-lexer_create (const alloc_t *alloc, const char *fname)
-{
-	lexer_t ret = { .alloc = alloc, .fname = fname };
-	FILE *fp = fopen(fname, "r");
+#pragma region SYMBOL TABLE
+#ifdef LEX_IMPLEMENT
 
-	if (fp) {
-		fseek(fp, 0, SEEK_END);
-		set_slice(ret.buffer, allocate(*alloc, char, ftell(fp) + 1));
-		ret.buffer.length -= 1;
-		rewind(fp);
-		fread(ret.buffer.ptr, 1, ret.buffer.length, fp);
-		ret.buffer.ptr[ret.buffer.length] = '\0';
-		fclose(fp);
-	}
-
-	return ret;
-}
-
-void
-lexer_destroy (const lexer_t *this)
-{
-	if (this->buffer.ptr) deallocate(*this->alloc, this->buffer);
-}
-/* }}} */
-
-/** lexer_t methods */
-/* {{{ */
-inline bool
-_lex_eof (const lexer_t *this, lex_buf_pos pos)
-{ return pos.pos >= this->buffer.length; }
-
-inline char
-_lex_read_char (const lexer_t *this, lex_buf_pos pos)
-{ return _lex_eof(this, pos) ? 0 : this->buffer.ptr[pos.pos]; }
-
-inline slice_char_t
-_lex_read_str (const lexer_t *this, lex_buf_pos pos, uint32_t length)
-{
-	return _lex_eof(this, POS_ADV(pos, length - 1))
-		? (slice_char_t){}
-		: (slice_char_t){ this->buffer.ptr + pos.pos, length };
-}
-
-bool
-_lex_matches (const lexer_t *this, lex_buf_pos pos, const char *str)
-{
-	uint32_t len = strlen(str);
-	slice_char_t sl = _lex_read_str(this, pos, len);
-	if (sl.ptr) return !strncmp(sl.ptr, str, len);
-	else return false;
-}
-/* }}} */
-
-/** symbol table */
-/* {{{ */
 static struct { const char *key; enum lex_type value; } *lex_symbol_table;
 
 #define OP_LEX(l, s) [DANA_    ## l] = s,
@@ -217,10 +169,13 @@ _lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len)
 	SLICE_TMP_STR(sl);
 	return hm_get(lex_symbol_table, sl.ptr);
 }
-/* }}} */
 
-/** indentation stack */
-/* {{{ */
+#endif
+#pragma endregion
+
+#pragma region INDENTATION STACK
+#ifdef LEX_IMPLEMENT
+
 static uint16_t *indent_stack = {0};
 
 void __attribute__((constructor))
@@ -230,10 +185,101 @@ create_indent_stack (void)
 void __attribute__((destructor))
 destroy_indent_stack (void)
 { arr_free(indent_stack); }
-/* }}} */
 
-/** tokenizer */
-/* {{{ */
+#endif
+#pragma endregion
+
+#pragma region POSITIONING SYSTEM
+extern void     lex_push_line(lexer_t *this, lex_buf_pos pos);
+extern file_pos lex_get_position(const lexer_t *this, lex_buf_pos pos);
+
+#ifdef LEX_IMPLEMENT
+inline void
+lex_push_line (lexer_t *this, lex_buf_pos pos)
+{
+	arr_push(this->lines, pos);
+}
+
+file_pos
+lex_get_file_pos (const lexer_t *this, lex_buf_pos pos)
+{
+	size_t idx = 0;
+
+	for (size_t jmp = arr_ulen(this->lines) / 2; jmp >= 1; jmp /= 2)
+		while (idx + jmp < arr_ulen(this->lines) &&
+				POS_DIFF(this->lines[idx + jmp], pos) >= 0)
+			idx += jmp;
+	assert(pos.pos >= this->lines[idx].pos);
+
+	return (file_pos){
+		(uint16_t) idx + 1, POS_DIFF(this->lines[idx], pos) + 1,
+	};
+}
+#endif
+#pragma endregion
+
+#ifdef LEX_IMPLEMENT
+#pragma region METHODS
+lexer_t
+lexer_create (const alloc_t *alloc, const char *fname)
+{
+	lexer_t ret = { .alloc = alloc, .fname = fname };
+	FILE *fp = fopen(fname, "r");
+
+	if (fp) {
+		fseek(fp, 0, SEEK_END);
+		set_slice(ret.buffer, allocate(*alloc, char, ftell(fp) + 1));
+		ret.buffer.length -= 1;
+		rewind(fp);
+		fread(ret.buffer.ptr, 1, ret.buffer.length, fp);
+		ret.buffer.ptr[ret.buffer.length] = '\0';
+		fclose(fp);
+	}
+
+	if (ret.buffer.ptr) {
+		lex_push_line(&ret, (lex_buf_pos){0});
+		for (uint32_t i = 0; i < ret.buffer.length; ++i)
+			if (ret.buffer.ptr[i] == '\n')
+				lex_push_line(&ret, (lex_buf_pos){ i + 1 });
+	}
+
+	return ret;
+}
+
+void
+lexer_destroy (const lexer_t *this)
+{
+	if (this->buffer.ptr) deallocate(*this->alloc, this->buffer);
+	arr_free(this->lines);
+}
+
+inline bool
+_lex_eof (const lexer_t *this, lex_buf_pos pos)
+{ return pos.pos >= this->buffer.length; }
+
+inline char
+_lex_read_char (const lexer_t *this, lex_buf_pos pos)
+{ return _lex_eof(this, pos) ? 0 : this->buffer.ptr[pos.pos]; }
+
+inline slice_char_t
+_lex_read_str (const lexer_t *this, lex_buf_pos pos, uint32_t length)
+{
+	return _lex_eof(this, POS_ADV(pos, length - 1))
+		? (slice_char_t){}
+		: (slice_char_t){ this->buffer.ptr + pos.pos, length };
+}
+
+bool
+_lex_matches (const lexer_t *this, lex_buf_pos pos, const char *str)
+{
+	uint32_t len = strlen(str);
+	slice_char_t sl = _lex_read_str(this, pos, len);
+	if (sl.ptr) return !strncmp(sl.ptr, str, len);
+	else return false;
+}
+#pragma endregion
+
+#pragma region TOKENIZER
 int
 isiden (int ch)
 { return isalpha(ch) || isdigit(ch) || ch == '_'; }
@@ -250,9 +296,9 @@ _parse_hex (const char buf[2])
 }
 
 lex_buf_pos
-_lex_skip_spaces (const lexer_t *this, lex_buf_pos pos)
+_lex_skip_spaces (lexer_t *this, lex_buf_pos pos)
 {
-	for (; isspace(_lex_read_char(this, pos)); ++pos.pos);
+	for (; isspace(_lex_read_char(this, pos)); pos = POS_ADV(pos, 1));
 	return pos;
 }
 
@@ -391,7 +437,7 @@ lex_get_token (const lexer_t *this, lex_token_t tok)
 { return _lex_read_str(this, tok.pos, POS_DIFF(tok.pos, _lex_token_end(this, tok))); }
 
 lex_token_t
-lex_next_token (const lexer_t *this, const lex_token_t *prev)
+lex_next_token (lexer_t *this, const lex_token_t *prev)
 {
 	lex_buf_pos start = {0};
 	lex_token_t ret;
@@ -406,5 +452,5 @@ lex_next_token (const lexer_t *this, const lex_token_t *prev)
 		return lex_next_token(this, &ret);
 	return ret;
 }
-/* }}} */
+#pragma endregion
 #endif // LEX_IMPLEMENT

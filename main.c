@@ -104,6 +104,12 @@ int main (int argc, char *argv[argc])
 		}
 	printf("\n");
 
+	printf("\n=== LINE MAP ===\n");
+	for (size_t i=0; i<hm_ulen(parser.lexer.lines); ++i)
+		printf("Line %4lu\t|%6u\n", i,
+				parser.lexer.lines[i].pos);
+	printf("\n");
+
 	printf("\n=== AST PRETTY PRINT ===\n");
 	par_print(&parser, root);
 	printf("\n");

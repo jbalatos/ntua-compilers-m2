@@ -34,7 +34,9 @@ typedef struct {
 		DANA_KEYWORDS
 		AST_TYPE_LEN
 	} __attribute__((packed)) type;
+	lex_buf_pos src;
 	uint16_t length;
+	uint16_t name;
 	union {
 		union {
 			uint16_t num;
@@ -43,11 +45,7 @@ typedef struct {
 			char ch;
 		} pl_data;
 		struct {
-			uint16_t name;
-			ast_node_pos body;
-		} decl_data;
-		struct {
-			uint16_t name, array;
+			uint16_t array;
 		} var_data;
 	};
 } ast_node_t;
@@ -250,7 +248,7 @@ ast_next_child (ast_node_it it)
 #define par_fprint(f, this, pos) par_full_print(f, this, pos, 0)
 #define PAR_INLINE -2
 extern void par_full_print(FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth);
-extern void par_begin_line(FILE *f, ast_node_pos pos, int8_t depth);
+extern void par_begin_line(FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth);
 
 #ifdef PARSER_IMPLEMENT
 
@@ -266,14 +264,14 @@ extern void par_begin_line(FILE *f, ast_node_pos pos, int8_t depth);
 void
 par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 {
-#define _NAME_ UNSLICE(par_get_name(this, node.pl_data.name))
+#define _NAME_ UNSLICE(par_get_name(this, node.name))
 #define _TYPE_ ast_get_type_str(node)
 	if (pos.pos >= arr_ulen(this->nodes)) return;
 	if (depth < 0) depth = PAR_INLINE;
 
 	ast_node_t node = node_at(this, pos);
 	ast_node_it it = ast_get_child(this, pos);
-	par_begin_line(f, pos, depth);
+	par_begin_line(f, this, pos, depth);
 
 	switch (node.type) {
 	/* literals */
@@ -294,10 +292,15 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 	break; case AST_ARRAY:
 		dtype_t type = par_get_type(this, node.var_data.array);
 		assert(type.type & DTYPE_ARRAY);
-		if (type.type & DTYPE_VAR) log_plain("var ");
-		if (type.type & DTYPE_INT) log_plain("int array ");
-		else                       log_plain("byte array ");
-		log("%.*s", _NAME_);
+		if (type.type & DTYPE_INT) log_plain("int ");
+		else                       log_plain("byte ");
+		if (type.type & DTYPE_VAR) log_plain("var-array ");
+		else                       log_plain("array ");
+		log_plain("%.*s", _NAME_);
+		for (; type.next; type = par_get_type(this, type.next))
+			if (type.dim) log_plain("[%u]", type.dim);
+			else          log_plain("[]");
+		log("");
 	/* expressions */
 	break; case AST_PLUS ... AST_CMP_GEQ:
 	       case AST_BOOL_AND ... AST_BOOL_OR:
@@ -323,14 +326,14 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 		log("begin");
 		for (; ast_is_child(it); it = ast_next_child(it))
 			par_full_print(f, this, it.pos, depth + 1);
-		par_begin_line(f, pos, depth); log("end");
+		par_begin_line(f, this, pos, depth); log("end");
 	/* statements */
 	break; case AST_SKIP: case AST_EXIT:
 		log("%s", _TYPE_);
 	break; case AST_BREAK: case AST_CONT:
 	       case AST_LOOP:
-		if (node.pl_data.name) log("%s \"%.*s\"", _TYPE_, _NAME_);
-		else                   log("%s", _TYPE_);
+		if (node.name) log("%s \"%.*s\"", _TYPE_, _NAME_);
+		else           log("%s", _TYPE_);
 		if (node.type != AST_LOOP) break;
 		for (; ast_is_child(it); it = ast_next_child(it))
 			par_full_print(f, this, it.pos, depth + 1);
@@ -378,11 +381,11 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 		for (is_cond = true; ast_is_child(it);
 				it = ast_next_child(it), is_cond = !is_cond)
 			if (is_cond && ast_is_child(ast_next_child(it))) {
-				par_begin_line(f, pos, depth);
+				par_begin_line(f, this, pos, depth);
 				log_plain("else if ");
 				par_full_print(f, this, it.pos, PAR_INLINE);
 			} else if (is_cond) {
-				par_begin_line(f, pos, depth);
+				par_begin_line(f, this, pos, depth);
 				log("else");
 				par_full_print(f, this, it.pos, depth + 1);
 			} else {
@@ -407,7 +410,7 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 			it = ast_next_child(it);
 		}
 		{
-			assert(it.node && !POS_CMP(it.pos, node.decl_data.body));
+			assert(it.node);
 			par_full_print(f, this, it.pos, depth + 1);
 		}
 	break; case AST_VARS: case AST_ARGS:
@@ -430,11 +433,13 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 #pragma GCC diagnostic pop
 
 inline void
-par_begin_line (FILE *f, ast_node_pos pos, int8_t depth)
+par_begin_line (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 {
+	file_pos ln = lex_get_file_pos(&this->lexer, node_at(this, pos).src);
 	for (uint8_t i=0; i<depth; ++i) log_plain(" |");
 	// if (depth >= 0) log_plain(" (%u) ", pos.pos);
-	if (depth >= 0) log_plain(" ");
+	// if (depth >= 0) log_plain(" ");
+	if (depth >= 0) log_plain(" (%u:%u) ", ln.line, ln.column);
 }
 
 #pragma pop_macro("log")
@@ -716,7 +721,10 @@ par_reverse_range (parser_t *this, ast_node_pos begin, ast_node_pos end)
 ast_node_pos
 parse_args (parser_t *this, enum ast_type to_match)
 {
-	ast_node_pos node = par_emplace_node(this, .type = AST_ARGS);
+	ast_node_pos node = par_emplace_node(this,
+		.type = AST_ARGS,
+		.src = par_peek_token(this).pos,
+	);
 
 	if (to_match == AST_FUNC_CALL &&
 			par_peek_token(this).type == DANA_CLOSE_PAREN)
@@ -743,8 +751,9 @@ parse_block (parser_t *this)
 
 	switch (par_peek_token(this).type) {
 	case DANA_KW_BEGIN:
-		par_pop_token(this);
-		node = par_emplace_node(this, .type = AST_BLOCK);
+		node = par_emplace_node(this,
+			.type = AST_BLOCK, .src = par_pop_token(this).pos,
+		);
 		while (par_peek_token(this).type != DANA_KW_END) {
 			_assert(par_peek_token(this).type != DANA_EOF,
 					"EOF before block end");
@@ -754,7 +763,10 @@ parse_block (parser_t *this)
 		par_pop_token(this);
 		return node;
 	default:
-		node = par_emplace_node(this, .type = AST_BLOCK_SIMPLE);
+		node = par_emplace_node(this,
+			.type = AST_BLOCK_SIMPLE,
+			.src = par_peek_token(this).pos,
+		);
 		node_at(this, node).length +=
 			node_at(this, parse_stmt(this)).length;
 		return node;
@@ -764,11 +776,11 @@ parse_block (parser_t *this)
 ast_node_pos
 parse_cond (parser_t *this)
 {
-	ast_node_pos node;
+	ast_node_pos node = par_emplace_node(this,
+		.type = AST_COND,
+		.src = par_pop_require(this, DANA_KW_IF).pos,
+	);
 
-	par_pop_require(this, DANA_KW_IF);
-
-	node = par_emplace_node(this, .type = AST_COND);
 	node_at(this, node).length += node_at(this, parse_expr(this, 0)).length;
 	par_pop_require(this, DANA_COLON);
 	node_at(this, node).length += node_at(this, parse_block(this)).length;
@@ -793,13 +805,14 @@ ast_node_pos
 parse_decl (parser_t *this, enum lex_type to_match)
 {
 	ast_node_pos node;
-	uint16_t id;
 
 	_assert(to_match == DANA_KW_DECL || to_match == DANA_KW_DEF,
 			"Invalid parameter on func-decl");
-	par_pop_require(this, to_match);
-	id = par_push_name(this, par_pop_require(this, DANA_NAME));
-	node = par_emplace_node(this, .type = to_match, .decl_data.name = id);
+	node = par_emplace_node(this,
+		.type = to_match,
+		.src = par_pop_require(this, to_match).pos,
+		.name = par_push_name(this, par_pop_require(this, DANA_NAME)),
+	);
 
 	if (par_peek_token(this).type == DANA_KW_IS) {
 		par_pop_token(this);
@@ -811,8 +824,8 @@ parse_decl (parser_t *this, enum lex_type to_match)
 	}
 
 	printf("DEF:\t %s\t(%u) %.*s\n", ast_get_type_str(node_at(this, node)),
-			node_at(this, node).decl_data.name,
-			UNSLICE(par_get_name(this, node_at(this, node).decl_data.name))
+			node_at(this, node).name,
+			UNSLICE(par_get_name(this, node_at(this, node).name))
 			);
 
 	if (par_peek_token(this).type == DANA_COLON) {
@@ -824,15 +837,12 @@ parse_decl (parser_t *this, enum lex_type to_match)
 		} while (par_peek_token(this).type == DANA_COMMA);
 	} else {
 		node_at(this, node).length += 1;
-		par_emplace_node(this, .type = AST_VARS, .length = 0);
+		par_emplace_node(this, .type = AST_VARS);
 	}
 
 	if (to_match == DANA_KW_DEF) {
 		node_at(this, node).length +=
 			node_at(this, parse_local_defs(this)).length;
-		node_at(this, node).decl_data.body = POS_ADV(
-				node, node_at(this, node).length
-				);
 		node_at(this, node).length +=
 			node_at(this, parse_block(this)).length;
 	}
@@ -851,16 +861,17 @@ parse_expr (parser_t *this, uint8_t thrs)
 		slice_char_t sl = par_get_value(this, tok);
 		SLICE_TMP_STR(sl);
 		node = par_emplace_node(this,
-			.type = AST_NUMBER, .pl_data.num = atoi(sl.ptr),
+			.type = AST_NUMBER, .src = tok.pos,
+			.pl_data.num = atoi(sl.ptr),
 		);
 	} else node = SWITCH(tok.type, ast_node_pos, {
 	/* literal */
 	case DANA_KW_TRUE ... DANA_KW_FALSE:
-		return par_emplace_node(this, .type = tok.type);
+		return par_emplace_node(this, .type = tok.type, .src = tok.pos);
 	case DANA_CHAR:
 		return par_emplace_node(this,
-			.type = AST_CHAR,
-			.pl_data.ch = lex_get_char(&this->lexer, tok)
+			.type = AST_CHAR, .src = tok.pos,
+			.pl_data.ch = lex_get_char(&this->lexer, tok),
 		);
 	/* lvalue */
 	case DANA_STRING:
@@ -874,7 +885,7 @@ parse_expr (parser_t *this, uint8_t thrs)
 		return node;
 	default:
 		_assert(bp_operator_is(tok, PREFIX), "Invalid start of expr");
-		node = par_emplace_node(this, .type = tok.type, .length = 1);
+		node = par_emplace_node(this, .type = tok.type, .src = tok.pos);
 		node_at(this, node).length += node_at(this,
 				parse_expr(this, bp_rhs(tok, PREFIX))).length;
 		return node;
@@ -890,12 +901,13 @@ parse_expr (parser_t *this, uint8_t thrs)
 			if (tok.type == DANA_OPEN_PAREN) {
 				_assert(node_at(this, node).type == AST_NAME,
 						"Func-call must be done on name");
-				uint16_t id = node_at(this, node).pl_data.name;
+				uint16_t id = node_at(this, node).name;
 
 				arr_pop(this->nodes); /* remove node */
 				node = par_emplace_node(this,
 					.type = AST_FUNC_CALL,
-					.pl_data.name = id, .length = 1,
+					.src = tok.pos,
+					.name = id,
 				);
 				node_at(this, node).length += node_at(this,
 						parse_args(this, AST_FUNC_CALL)).length;
@@ -904,6 +916,7 @@ parse_expr (parser_t *this, uint8_t thrs)
 				uint32_t length = node_at(this, node).length;
 				arr_ins(this->nodes, node.pos, ((ast_node_t){
 					.type = tok.type,
+					.src = tok.pos,
 					.length = 1 + length,
 				}));
 			}
@@ -913,6 +926,7 @@ parse_expr (parser_t *this, uint8_t thrs)
 			uint32_t length = node_at(this, node).length;
 			arr_ins(this->nodes, node.pos, ((ast_node_t){
 				.type = tok.type,
+				.src = tok.pos,
 				.length = 1 + length,
 			}));
 			node_at(this, node).length += node_at(this,
@@ -929,7 +943,9 @@ parse_expr (parser_t *this, uint8_t thrs)
 ast_node_pos
 parse_local_defs (parser_t *this)
 {
-	ast_node_pos node = par_emplace_node(this, .type = AST_LOCAL_DEF);
+	ast_node_pos node = par_emplace_node(this,
+		.type = AST_LOCAL_DEF, .src = par_peek_token(this).pos,
+	);
 	enum lex_type type;
 
 	while (true) {
@@ -948,6 +964,9 @@ parse_local_defs (parser_t *this)
 		}
 		break;
 	}
+
+	if (node_at(this, node).length == 1)
+		node_at(this, node).src = (lex_buf_pos){0};
 	return node;
 }
 
@@ -960,12 +979,12 @@ parse_lvalue (parser_t *this)
 	node = SWITCH(tok.type, ast_node_pos, {
 	case DANA_NAME:
 		return par_emplace_node(this,
-			.type = AST_NAME,
-			.pl_data.name = par_push_name(this, tok)
+			.type = AST_NAME, .src = tok.pos,
+			.name = par_push_name(this, tok)
 		);
 	case DANA_STRING:
 		return par_emplace_node(this,
-			.type = AST_STRING,
+			.type = AST_STRING, .src = tok.pos,
 			.pl_data.str = par_push_text(this, tok)
 		);
 	default:
@@ -1000,27 +1019,27 @@ parse_stmt (parser_t *this)
 	else switch ((tok = par_pop_token(this)).type) {
 	case DANA_KW_SKIP:
 	case DANA_KW_EXIT:
-		return par_emplace_node(this, .type = tok.type);
+		return par_emplace_node(this, .type = tok.type, .src = tok.pos);
 	case DANA_KW_RETURN:
 		par_pop_require(this, DANA_COLON);
-		node = par_emplace_node(this, .type = AST_RETURN);
+		node = par_emplace_node(this, .type = AST_RETURN, .src = tok.pos);
 		length = node_at(this, parse_expr(this, 0)).length;
 		node_at(this, node).length += length;
 		return node;
 	case DANA_KW_BREAK:
 	case DANA_KW_CONT:
-		node = par_emplace_node(this, .type = tok.type);
+		node = par_emplace_node(this, .type = tok.type, .src = tok.pos);
 		if (par_peek_token(this).type == DANA_COLON) {
 			par_pop_token(this);
 			id = par_push_name(this, par_pop_token(this));
-			node_at(this, node).pl_data.name = id;
+			node_at(this, node).name = id;
 		}
 		return node;
 	case DANA_KW_LOOP:
-		node = par_emplace_node(this, .type = AST_LOOP);
+		node = par_emplace_node(this, .type = AST_LOOP, .src = tok.pos);
 		if (par_peek_token(this).type == DANA_NAME) {
 			id = par_push_name(this, par_pop_token(this));
-			node_at(this, node).pl_data.name = id;
+			node_at(this, node).name = id;
 		}
 		par_pop_require(this, DANA_COLON);
 		length = node_at(this, parse_block(this)).length;;
@@ -1033,19 +1052,12 @@ parse_stmt (parser_t *this)
 
 		switch (par_peek_token(this).type) {
 		case DANA_ASSIGN:
-			par_pop_token(this);
 			length = node_at(this, node).length;
 			arr_ins(this->nodes, node.pos, ((ast_node_t){
 				.type = AST_ASSIGN,
+				.src = par_pop_token(this).pos,
 				.length = 1 + length,
 			}));
-			// par_reserve_node(this);
-			// for (uint32_t i = node.pos + 1; i < arr_ulen(this->nodes); ++i)
-				// this->nodes[i] = this->nodes[i - 1];
-			// this->nodes[node.pos] = (ast_node_t){
-				// .type = AST_ASSIGN,
-				// .length = 1 + node_at(this, POS_ADV(node, 1)).length,
-			// };
 			length = node_at(this, parse_expr(this, 0)).length;
 			node_at(this, node).length += length;
 			return node;
@@ -1056,9 +1068,10 @@ parse_stmt (parser_t *this)
 			length = node_at(this,
 					parse_args(this, AST_PROC_CALL)).length;
 		default:
-			id = node_at(this, node).pl_data.name;
+			id = node_at(this, node).name;
 			node_at(this, node) = (ast_node_t){
 				.type = AST_PROC_CALL,
+				.src = tok.pos,
 				.pl_data.name = id,
 				.length = 1 + length,
 			};
@@ -1071,14 +1084,20 @@ parse_stmt (parser_t *this)
 ast_node_pos
 parse_var (parser_t *this, enum lex_type to_match)
 {
-	ast_node_pos node = par_emplace_node(this, .type = AST_VARS);
+	ast_node_pos node = par_emplace_node(this,
+		.type = AST_VARS, .src = par_peek_token(this).pos,
+	);
 	ast_node_t template = { .length = 1 };
 	lex_token_t tok;
 	enum dtype arr_type;
 	uint16_t *names = {0}, *dimen = {0};
+	lex_buf_pos *pos = {0};
 
-	do arr_push(names, par_push_name(this, par_pop_require(this, DANA_NAME)));
-	while (par_peek_token(this).type == DANA_NAME);
+	do {
+		arr_push(pos, par_peek_token(this).pos);
+		arr_push(names, par_push_name(this,
+					par_pop_require(this, DANA_NAME)));
+	} while (par_peek_token(this).type == DANA_NAME);
 	par_pop_require(this, to_match);
 	/* base types */
 	switch ((tok = par_pop_token(this)).type) {
@@ -1145,11 +1164,13 @@ parse_var (parser_t *this, enum lex_type to_match)
 	}
 
 	for (uint32_t i=0; i<arr_ulen(names); ++i) {
-		template.var_data.name = names[i];
+		template.name = names[i];
+		template.src = pos[i];
 		node_at(this, node).length += node_at(this,
 				par_push_node(this, template)).length;
 	}
 
+	hm_free(names), hm_free(dimen), hm_free(pos);
 	return node;
 }
 #pragma endregion
