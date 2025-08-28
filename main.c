@@ -16,6 +16,7 @@ const char fname[] = "etc/sample.dana";
 
 int main (int argc, char *argv[argc])
 {
+	--argc, ++argv;
 
 	printf("---DEBUG INFO (%lu):---\n", sizeof(uint8_t));
 	printf("\tLEXER:\r");
@@ -40,9 +41,9 @@ int main (int argc, char *argv[argc])
 	// }
 
 	parser_t PARSER_CLEANUP parser = parser_create(
-			lexer_create(&LIBC, fname)
+			lexer_create(&LIBC, argc ? *argv : fname)
 			);
-	ast_node_pos __attribute__((unused)) root = parse(&parser);
+	ast_node_pos root = parse(&parser);
 
 	printf("\n=== AST ARRAY ===\n");
 	for (size_t i=0; i<arr_ulen(parser.nodes); ++i)
@@ -101,6 +102,10 @@ int main (int argc, char *argv[argc])
 					ast_get_type_str(parser.nodes[i]),
 					parser.nodes[i].length);
 		}
+	printf("\n");
+
+	printf("\n=== AST PRETTY PRINT ===\n");
+	par_print(&parser, root);
 	printf("\n");
 
 	// printf("\n=== NAME TABLE ===\n");
