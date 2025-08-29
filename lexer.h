@@ -13,8 +13,6 @@
 #include "util/alloc.h"
 #include "util/dynamic_array.h"
 
-#define LEX_SPACES_PER_TAB 4
-
 #pragma region TYPES
 
 typedef slice(char) slice_char_t;
@@ -28,6 +26,7 @@ typedef struct {
 } lexer_t;
 
 typedef struct { uint16_t line, column; } file_pos;
+typedef struct { uint8_t tabs, spaces;  } indent_info_t;
 
 #define OP_LEX(l, s) DANA_    ## l,
 #define TK_LEX(l, s) DANA_    ## l,
@@ -48,7 +47,8 @@ typedef struct {
 		DANA_KEYWORDS
 		DANA_COMMENT,
 		LEX_TYPE_LEN,
-	} type : 8;
+	} type : 7;
+	bool is_bol: 1;
 	lex_buf_pos pos;
 } lex_token_t;
 
@@ -84,10 +84,23 @@ enum lex_type  _lex_scan_sym_table(const lexer_t *this, lex_buf_pos pos, uint32_
 int             isiden(int ch);
 int             ishex(int ch);
 char           _parse_hex(const char buf[2]);
-lex_buf_pos    _lex_skip_spaces(lexer_t *this, lex_buf_pos pos);
+lex_buf_pos    _lex_skip_spaces(const lexer_t *this, lex_buf_pos pos);
 lex_buf_pos    _lex_scan_char(const lexer_t *this, lex_buf_pos pos);
 lex_token_t    _lex_token_at(const lexer_t *this, lex_buf_pos pos);
 lex_buf_pos    _lex_token_end(const lexer_t *this, lex_token_t tok); /* exclusive */
+#endif
+#pragma endregion
+
+#pragma region INDENTATION
+extern int indent_cmp(indent_info_t a, indent_info_t b);
+
+#ifdef LEX_IMPLEMENT
+inline int
+indent_cmp (indent_info_t a, indent_info_t b)
+{
+	if (a.tabs != b.tabs) return a.tabs - b.tabs;
+	return a.spaces - b.spaces;
+}
 #endif
 #pragma endregion
 
@@ -169,22 +182,6 @@ _lex_scan_sym_table (const lexer_t *this, lex_buf_pos pos, uint32_t len)
 	SLICE_TMP_STR(sl);
 	return hm_get(lex_symbol_table, sl.ptr);
 }
-
-#endif
-#pragma endregion
-
-#pragma region INDENTATION STACK
-#ifdef LEX_IMPLEMENT
-
-static uint16_t *indent_stack = {0};
-
-void __attribute__((constructor))
-create_indent_stack (void)
-{ arr_push(indent_stack, 0); }
-
-void __attribute__((destructor))
-destroy_indent_stack (void)
-{ arr_free(indent_stack); }
 
 #endif
 #pragma endregion
@@ -296,7 +293,7 @@ _parse_hex (const char buf[2])
 }
 
 lex_buf_pos
-_lex_skip_spaces (lexer_t *this, lex_buf_pos pos)
+_lex_skip_spaces (const lexer_t *this, lex_buf_pos pos)
 {
 	for (; isspace(_lex_read_char(this, pos)); pos = POS_ADV(pos, 1));
 	return pos;
@@ -357,42 +354,66 @@ _lex_token_at (const lexer_t *this, lex_buf_pos pos)
 {
 	lex_buf_pos end;
 	enum lex_type kword;
+	bool is_bol = false;
 
+	for (; isspace(_lex_read_char(this, pos)); ++pos.pos) {
+		if (_lex_read_char(this, pos) == '\n') is_bol = true;
+	}
+
+	if (_lex_eof(this, pos))
+		return (lex_token_t){ .type = DANA_EOF, .pos = pos };
 	if (_lex_matches(this, pos, "(*"))
-		return (lex_token_t){ DANA_COMMENT, pos };
+		return (lex_token_t){ .type = DANA_COMMENT, .pos = pos };
 
 	switch (_lex_read_char(this, pos)) {
 	case '#':
-		return (lex_token_t){ DANA_COMMENT, pos };
+		return (lex_token_t){
+			.type = DANA_COMMENT, .pos = pos, .is_bol = is_bol,
+		};
 	case '0' ... '9':
-		return (lex_token_t){ DANA_NUMBER, pos };
+		return (lex_token_t){
+			.type = DANA_NUMBER, .pos = pos, .is_bol = is_bol,
+		};
 	case '"':
-		return (lex_token_t){ DANA_STRING, pos };
+		return (lex_token_t){
+			.type = DANA_STRING, .pos = pos, .is_bol = is_bol,
+		};
 	case '\'':
-		return (lex_token_t){ DANA_CHAR, pos };
+		return (lex_token_t){
+			.type = DANA_CHAR, .pos = pos, .is_bol = is_bol,
+		};
 	case '_':
 	case 'a' ... 'z':
 	case 'A' ... 'Z':
 		for (end=POS_ADV(pos, 1); isiden(_lex_read_char(this, end));
 				++end.pos);
 		kword = _lex_scan_sym_table(this, pos, POS_DIFF(pos, end));
-		if (kword) return (lex_token_t){ kword, pos };
-		else       return (lex_token_t){ DANA_NAME, pos };
+		if (kword) return (lex_token_t){
+			.type = kword, .pos = pos, .is_bol = is_bol,
+		};
+		else return (lex_token_t){
+			.type = DANA_NAME, .pos = pos, .is_bol = is_bol,
+		};
 	default:
 		if ((kword = _lex_scan_sym_table(this, pos, 2)))
-			return (lex_token_t){ kword, pos };
+			return (lex_token_t){
+				.type = kword, .pos = pos, .is_bol = is_bol,
+			};
 		if ((kword = _lex_scan_sym_table(this, pos, 1)))
-			return (lex_token_t){ kword, pos };
+			return (lex_token_t){
+				.type = kword, .pos = pos, .is_bol = is_bol,
+			};
 	}
-	return (lex_token_t){ DANA_ERROR, pos };
+	return (lex_token_t){ .type = DANA_ERROR, .pos = pos };
 }
 
 lex_buf_pos
 _lex_token_end (const lexer_t *this, lex_token_t tok)
 {
-	lex_buf_pos end = tok.pos;
+	lex_buf_pos end = _lex_skip_spaces(this, tok.pos);
 
 	switch (tok.type) {
+	case DANA_EOF: return end;
 	case DANA_COMMENT:
 		if (_lex_read_char(this, tok.pos) == '#') {
 			for (++end.pos; _lex_read_char(this, end) != '\n'; ++end.pos);
@@ -403,7 +424,8 @@ _lex_token_end (const lexer_t *this, lex_token_t tok)
 					++end.pos)
 				if (_lex_matches(this, end,"(*"))
 					end = _lex_token_end(this, (lex_token_t){
-							DANA_COMMENT, end
+							.type = DANA_COMMENT,
+							.pos = end,
 							});
 			if (_lex_matches(this, end,"*)"))
 				return POS_ADV(end, 2);
@@ -438,14 +460,13 @@ lex_next_token (lexer_t *this, const lex_token_t *prev)
 	lex_buf_pos start = {0};
 	lex_token_t ret;
 
-	if (prev) start =  _lex_token_end(this, *prev);
-	start = _lex_skip_spaces(this, start);
-	if (_lex_eof(this, start))
-		return (lex_token_t){ DANA_EOF };
-
-	ret = _lex_token_at(this, start);
-	if (ret.type == DANA_COMMENT)
-		return lex_next_token(this, &ret);
+	do {
+		if (prev) start =  _lex_token_end(this, *prev);
+		if (_lex_eof(this, start))
+			return (lex_token_t){ DANA_EOF };
+		ret = _lex_token_at(this, start);
+		prev = &ret;
+	} while (ret.type == DANA_COMMENT);
 	return ret;
 }
 #pragma endregion

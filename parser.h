@@ -83,7 +83,8 @@ typedef struct {
 		size_t key; uint16_t value;
 		slice_char_t decl; /* first declaration of name, dbg only */
 	} *names;            /* hash map matching name => id */
-	bool has_peeked;     /* allows peeking */
+	indent_info_t *indents;
+	par_token_pos top;    /* index to current token */
 } parser_t;
 
 typedef struct {
@@ -104,6 +105,7 @@ extern parser_t            parser_create(const lexer_t lex);
 extern void                parser_destroy(parser_t *this);
 extern ast_node_pos        parse(parser_t *this);
 /** private methods */
+extern void                par_check_indentation(parser_t *this, lex_token_t tok);
 #define par_emplace_node(p, decl...) \
 	par_push_node((p), (ast_node_t){ .length = 1, decl })
 extern const slice_char_t  par_get_name(const parser_t *this, ast_node_t node);
@@ -563,14 +565,14 @@ par_begin_line (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 #pragma endregion
 
 #ifdef PARSER_IMPLEMENT
-#pragma region PARSER METHODS
 parser_t
 parser_create(const lexer_t lex)
 {
-	parser_t ret = { .lexer = lex };
+	parser_t ret = { .lexer = lex, .top = {1} };
 	arr_push(ret.tokens, (lex_token_t){});
 	arr_push(ret.nodes, (ast_node_t){});
 	arr_push(ret.text, '\0');
+	arr_push(ret.indents, (indent_info_t){0});
 	return ret;
 }
 
@@ -580,6 +582,7 @@ parser_destroy (parser_t *this)
 	arr_free(this->tokens);
 	arr_free(this->nodes);
 	arr_free(this->text);
+	arr_free(this->indents);
 	hm_free(this->names);
 	hm_free(this->types);
 }
@@ -593,6 +596,47 @@ parse (parser_t *this)
 			FPOS(this, ret),
 			UNSLICE(par_get_value(this, par_peek_token(this))));
 	return ret;
+}
+
+#pragma region PARSER METHODS
+void
+par_check_indentation (parser_t *this, lex_token_t tok)
+{
+	indent_info_t ind = {0};
+
+	if (tok.type == DANA_EOF) {
+		for (; arr_ulen(this->indents) > 1; arr_pop(this->indents))
+			arr_push(this->tokens, ((lex_token_t){
+				.type = DANA_DEDENT, .pos = tok.pos
+			}));
+		return;
+	}
+
+	if (!tok.is_bol) return;
+
+	for (lex_buf_pos it = this->lexer.lines[par_get_fpos(this, tok).line - 1];
+			POS_CMP(it, tok.pos); ++it.pos)
+		if (_lex_read_char(&this->lexer, it) == ' ')
+			ind.spaces += 1;
+		else if (_lex_read_char(&this->lexer, it) == '\t')
+			ind.tabs += 1;
+
+	if (indent_cmp(ind, arr_back(this->indents)) > 0) {
+		/* INDENT */
+		arr_push(this->indents, ind);
+		printf("ADDING TOKEN INDENT\n");
+		arr_push(this->tokens, ((lex_token_t){
+			.type = DANA_INDENT, .pos = tok.pos
+		}));
+	} else while (indent_cmp(ind, arr_back(this->indents)) < 0) {
+		/* DEDENT */
+		arr_pop(this->indents);
+		printf("ADDING TOKEN DEDENT\n");
+		arr_push(this->tokens, ((lex_token_t){
+			.type = DANA_DEDENT, .pos = tok.pos
+		}));
+	}
+	assert(!indent_cmp(ind, arr_back(this->indents)));
 }
 
 inline const slice_char_t
@@ -651,40 +695,32 @@ par_node_at (const parser_t *this, ast_node_pos pos)
 lex_token_t
 par_peek_token (parser_t *this)
 {
-	lex_token_t ret = par_pop_token(this);
-	this->has_peeked = true;
-	return ret;
+	if (this->top.pos == arr_ulen(this->tokens)) {
+		par_pop_token(this);
+		this->top.pos -= 1;
+	}
+	return par_get_token(this, this->top);
 }
-
-/*
-lex_token_t
-par_pop_require (parser_t *this, enum lex_type type)
-{
-	lex_token_t ret = par_pop_token(this);
-	throw_if(ret.type != type, lex_token_t,
-			FSTR "Expected %s, got %s", FPOS(this, ret),
-			lex_symbol_arr[type], lex_get_type_str(ret));
-	return ret;
-}
-*/
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsequence-point"
 lex_token_t
 par_pop_token (parser_t *this)
 {
-	if (!this->has_peeked) {
-		if (arr_ulen(this->tokens) == 1)
-			arr_push(this->tokens, lex_next_token(
-						&this->lexer, NULL
-						));
-		else
-			arr_push(this->tokens, lex_next_token(
-					&this->lexer, &arr_back(this->tokens)
-					));
+	lex_token_t ret;
+	if (this->top.pos == arr_ulen(this->tokens)) {
+		ret = (arr_ulen(this->tokens) == 1)
+			? lex_next_token(&this->lexer, NULL)
+			: lex_next_token(&this->lexer, &arr_back(this->tokens));
+		// printf("ADDING TOKEN %s\n", lex_get_type_str(ret));
+		par_check_indentation(this, ret);
+		arr_push(this->tokens, ret);
+	} else {
+		ret = par_get_token(this, this->top);
 	}
-	this->has_peeked = 0;
-	return arr_back(this->tokens);
+
+	this->top.pos += 1;
+	return ret;
 }
 #pragma GCC diagnostic pop
 
@@ -823,13 +859,16 @@ parse_block (parser_t *this)
 {
 	ast_node_pos node, tmp;
 	lex_token_t tok;
+	enum lex_type to_match = DANA_KW_END;
 
 	switch (par_peek_token(this).type) {
+	case DANA_INDENT:
+		to_match = DANA_DEDENT;
 	case DANA_KW_BEGIN:
 		node = par_emplace_node(this,
 			.type = AST_BLOCK, .src = par_pop_token(this).pos,
 		);
-		while ((tok = par_peek_token(this)).type != DANA_KW_END) {
+		while ((tok = par_peek_token(this)).type != to_match) {
 			throw_if(tok.type == DANA_EOF, ast_node_pos,
 					FSTR "Reached EOF before block end",
 					FPOS(this, tok));
@@ -984,7 +1023,7 @@ parse_expr (parser_t *this, uint8_t thrs)
 	/* lvalue */
 	case DANA_STRING:
 	case DANA_NAME:
-		this->has_peeked = true; /* unpop token */
+		this->top.pos -= 1;
 		return parse_lvalue(this);
 	/* prefix operators */
 	case DANA_OPEN_PAREN:
@@ -1175,7 +1214,7 @@ parse_stmt (parser_t *this)
 		return node;
 	/* assign - proc-call */
 	case DANA_NAME:
-		this->has_peeked = true; /* turn previous pop into peek */
+		this->top.pos -= 1;
 		node = try(parse_lvalue(this), FSTR, FPOS(this, tok));
 
 		dbg(lex_get_type_str(par_peek_token(this)), "%s");
