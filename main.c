@@ -44,6 +44,7 @@ int main (int argc, char *argv[argc])
 			lexer_create(&LIBC, argc ? *argv : fname)
 			);
 	ast_node_pos root = parse(&parser);
+	if (!POS_OK(root)) return -1;
 
 	printf("\n=== AST ARRAY ===\n");
 	for (size_t i=0; i<arr_ulen(parser.nodes); ++i)
@@ -75,20 +76,18 @@ int main (int argc, char *argv[argc])
 			printf("%3lu :\t %10s\t%8.*s (%u)\t(%u)\n", i,
 					ast_get_type_str(parser.nodes[i]),
 					UNSLICE(par_get_name(
-							&parser,
-							parser.nodes[i].pl_data.name
+							&parser, parser.nodes[i]
 							)),
-					parser.nodes[i].pl_data.name,
+					parser.nodes[i].name,
 					parser.nodes[i].length);
 			break;
 		case AST_ARRAY:
 			printf("%3lu :\t %10s\t%8.*s (%u)\t(%u)\n", i,
 					ast_get_type_str(parser.nodes[i]),
 					UNSLICE(par_get_name(
-							&parser,
-							parser.nodes[i].pl_data.name
+							&parser, parser.nodes[i]
 							)),
-					parser.nodes[i].pl_data.name,
+					parser.nodes[i].name,
 					parser.nodes[i].length);
 			dtype_t it = par_get_type(&parser, parser.nodes[i].var_data.array);
 			printf("\t->\t%s", it.type & DTYPE_BYTE ? "byte" : "int");

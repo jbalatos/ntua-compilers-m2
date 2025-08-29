@@ -364,9 +364,6 @@ _lex_token_at (const lexer_t *this, lex_buf_pos pos)
 	switch (_lex_read_char(this, pos)) {
 	case '#':
 		return (lex_token_t){ DANA_COMMENT, pos };
-	case '-':
-		if (!isdigit(_lex_read_char(this, POS_ADV(pos, 1))))
-			goto lex_operator;
 	case '0' ... '9':
 		return (lex_token_t){ DANA_NUMBER, pos };
 	case '"':
@@ -381,7 +378,6 @@ _lex_token_at (const lexer_t *this, lex_buf_pos pos)
 		kword = _lex_scan_sym_table(this, pos, POS_DIFF(pos, end));
 		if (kword) return (lex_token_t){ kword, pos };
 		else       return (lex_token_t){ DANA_NAME, pos };
-lex_operator:
 	default:
 		if ((kword = _lex_scan_sym_table(this, pos, 2)))
 			return (lex_token_t){ kword, pos };
