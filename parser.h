@@ -117,7 +117,6 @@ extern const slice_char_t par_get_value_by_tok(const parser_t *this, lex_token_t
 extern ast_node_t*        par_node_at(const parser_t *this, ast_node_pos pos);
 extern lex_token_t        par_peek_token(parser_t *this);
 extern lex_token_t        par_pop_token(parser_t *this);
-extern lex_token_t        par_pop_require(parser_t *this, enum lex_type type);
 extern uint16_t           par_push_name(parser_t *this, lex_token_t tok);
 extern ast_node_pos       par_push_node(parser_t *this, ast_node_t node);
 extern par_text_pos       par_push_text(parser_t *this, lex_token_t tok);
@@ -139,6 +138,15 @@ extern ast_node_pos       parse_var(parser_t *this, enum lex_type to_match);
 	lex_token_t  : par_get_value_by_tok, \
 	par_token_pos: par_get_value_by_pos  \
 )(p, x)
+#define par_pop_require(this, t) ({                                             \
+		lex_token_t __ret__ = par_pop_token(this);                      \
+		file_pos __pos__ = lex_get_file_pos(&this->lexer, __ret__.pos); \
+		_assert(__ret__.type == t,                                      \
+				"REQUIRE ERR at (%u:%u):\tExpected %s, got %s", \
+				__pos__.line, __pos__.column,                   \
+				lex_symbol_arr[t], lex_get_type_str(__ret__));  \
+				__ret__;                                       })
+
 #pragma endregion
 
 #pragma region AST_TYPE PRINTING
@@ -623,15 +631,6 @@ par_peek_token (parser_t *this)
 {
 	lex_token_t ret = par_pop_token(this);
 	this->has_peeked = true;
-	return ret;
-}
-
-lex_token_t
-par_pop_require (parser_t *this, enum lex_type type)
-{
-	lex_token_t ret = par_pop_token(this);
-	_assert(ret.type == type, "REQUIRE ERR:\tExpected %s, got %s",
-			lex_symbol_arr[type], lex_get_type_str(ret));
 	return ret;
 }
 
