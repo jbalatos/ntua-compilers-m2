@@ -18,7 +18,8 @@
 
 #define arr_init(a)        (void)((a) = NULL)
 #define arr_setcap(a, cap) arr_maybegrow(a, 0, cap)
-#define arr_free(a)        free(arr_header(a))
+#define arr_free(a) ((void)((a)                        \
+			? (free(arr_header(a))) : (0) ))
 
 #define arr_assign(a, cap, v)  do {                                \
 	arr_regrow(a, 0, cap);                                     \
