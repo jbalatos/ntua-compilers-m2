@@ -7,33 +7,30 @@
 	OP	(MULT,		MULT,		"*")			\
 	OP	(DIV,		DIV,		"/")			\
 	OP	(MOD,		MOD,		"%")			\
+	OP	(NOT,		BIT_NOT,	"!")			\
 	OP	(AND,		BIT_AND,	"&")	/* bitwise */	\
 	OP	(OR,		BIT_OR,		"|")			\
-	OP	(NOT,		BIT_NOT,	"!")			\
 	OP	(EQ,		CMP_EQ,		"=")	/* compare */	\
 	OP	(NEQ,		CMP_NEQ,	"<>")			\
 	OP	(LT,		CMP_LT,		"<")			\
 	OP	(LEQ,		CMP_LEQ,	"<=")			\
 	OP	(GT,		CMP_GT,		">")			\
 	OP	(GEQ,		CMP_GEQ,	">=")			\
-	OP	(OPEN_PAREN,	FUNC,		"(")	/* dividers */	\
+	OP	(OPEN_PAREN,	FUNC_CALL,	"(")	/* dividers */	\
 	OP	(CLOSE_PAREN,	ARGS,		")")			\
-	OP	(OPEN_BRACKET,	ARR_AT,		"[")			\
-	OP_LEX	(CLOSE_BRACKET,			"]")			\
+	OP	(OPEN_BRACKET,	ARRAY_AT,	"[")			\
+	OP	(CLOSE_BRACKET,	ARRAY,		"]")			\
 	TK_LEX	(COMMA,				",")			\
-	TK	(COLON,		PROC,		":")			\
+	TK	(COLON,		PROC_CALL,	":")			\
 	TK	(ASSIGN,	ASSIGN,		":=")			\
-	LT_LEX	(OPEN_INDENT,			"TAB-BEGIN")		\
-	LT_LEX	(CLOSE_INDENT,			"TAB-END")		\
+	LT	(INDENT,	INDENT,		"tab-begin")		\
+	LT	(DEDENT,	DEDENT,		"tab-end")		\
 	LT	(NAME,		NAME,		"name")			\
 	LT	(NUMBER,	NUMBER,		"number")		\
 	LT	(CHAR,		CHAR,		"char")			\
 	LT	(STRING,	STRING,		"string")		\
-	LT_PAR	(		BOOL,		"boolean")		\
-	LT_PAR	(		REF_INT,	"int-ref")		\
-	LT_PAR	(		REF_BYTE,	"byte-ref")		\
-	LT_PAR	(		ARR_INT,	"int-array")		\
-	LT_PAR	(		ARR_BYTE,	"byte-array")		\
+	LT_PAR	(		REF_INT,	"int ref")		\
+	LT_PAR	(		REF_BYTE,	"byte ref")		\
 	LT_PAR	(		LOCAL_DEF,	"local defs")		\
 	LT_LEX	(EOF,				"EOF")			\
 
@@ -45,8 +42,8 @@
 	KW_LEX	(AS,				"as")			\
 	KW	(BEGIN,		BLOCK,		"begin")/* blocks */	\
 	KW	(END,		BLOCK_SIMPLE,	"end")			\
-	KW	(IF,		COND_SIMPLE,	"if")			\
-	KW	(ELIF,		COND,		"elif")			\
+	KW	(IF,		COND,		"if")			\
+	KW_LEX	(ELIF,				"elif")			\
 	KW_LEX	(ELSE,				"else")			\
 	KW	(LOOP,		LOOP,		"loop")			\
 	KW	(SKIP,		SKIP,		"skip")	/* simple ops */\
@@ -54,12 +51,12 @@
 	KW	(BREAK,		BREAK,		"break")		\
 	KW	(CONT,		CONT,		"continue")		\
 	KW	(RETURN,	RETURN,		"return")		\
-	KW_LEX	(VAR,				"var")	/* vars */	\
+	KW	(VAR,		VARS,		"var")	/* vars */	\
 	KW_LEX	(REF,				"ref")			\
 	KW	(INT,		INT,		"int")			\
 	KW	(BYTE,		BYTE,		"byte")			\
-	KW_LEX	(TRUE,				"true")			\
-	KW_LEX	(FALSE,				"false")		\
+	KW	(TRUE,		TRUE,		"true")			\
+	KW	(FALSE,		FALSE,		"false")		\
 	KW_LEX	(IS,				"is")			\
 	KW	(DECL,		DECL_PROC,	"decl")	/* funcs */	\
 	KW_PAR	(		DECL_INT,	"decl int")		\
@@ -79,7 +76,7 @@
 	IN(MULT,		7,	LEFT_ASSOC)			\
 	IN(DIV,			7,	LEFT_ASSOC)			\
 	IN(MOD,			7,	LEFT_ASSOC)			\
-	PRE(MINUS,		8)	/* unary minus */		\
+	PRE(MINUS,		8)		/* unary minus */	\
 	PRE(NOT,		8)			/* bitwise */	\
 	IN(AND,			7,	LEFT_ASSOC)			\
 	IN(OR,			6,	LEFT_ASSOC)			\
@@ -93,10 +90,11 @@
 	IN(GT,			5,	LEFT_ASSOC)			\
 	IN(GEQ,			5,	LEFT_ASSOC)			\
 	PRE(OPEN_PAREN,		1)			/* groupings */ \
-	POST(OPEN_PAREN,	9)			/* groupings */ \
+	POST(OPEN_PAREN,	9)					\
+
 	/* POST(OPEN_BRACKET,	9)					\ */
 
 #define LVALUE		case AST_NAME:   \
 			case AST_STRING: \
-			case AST_ARR_AT
+			case AST_ARRAY_AT
 

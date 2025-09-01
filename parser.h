@@ -62,10 +62,14 @@ typedef struct {
 
 typedef struct {
 	enum dtype {
-		DTYPE_INT   = 1,
-		DTYPE_BYTE  = 2,
-		DTYPE_ARRAY = 4,
-		DTYPE_VAR   = 8,
+		DTYPE_NONE      = 0,
+		DTYPE_INT       = 1,
+		DTYPE_BYTE      = 2,
+		DTYPE_ARRAY     = 4,
+		DTYPE_VAR       = 8,
+		DTYPE_VAR_ARRAY = 12,
+		DTYPE_FUNC      = 8,
+		DTYPE_LOOP      = 3,
 	} __attribute__((packed)) type;
 	uint16_t dim;
 	uint16_t next;
@@ -141,8 +145,8 @@ extern ast_node_pos        parse_stmt(parser_t *this);
 extern ast_node_pos        parse_var(parser_t *this, enum lex_type to_match);
 /** utility macros */
 #define node_at(p, pos) (*par_node_at(p, pos))
-#define FSTR            "%u:%u:\t"
-#define FPOS(p, x)      par_get_fpos(p, x).line, par_get_fpos(p, x).column
+#define PAR_FSTR            "%u:%u:\t"
+#define PAR_FPOS(p, x)      par_get_fpos(p, x).line, par_get_fpos(p, x).column
 #define par_get_fpos(p, x) _Generic((x),      \
 	lex_token_t  : _par_get_fpos_by_tok,  \
 	ast_node_t   : _par_get_fpos_by_node, \
@@ -158,7 +162,7 @@ extern ast_node_pos        parse_var(parser_t *this, enum lex_type to_match);
 #define par_pop_require(this, lex_type, typevar) ({                            \
 	lex_token_t __ret__ = par_pop_token(this);                             \
 	throw_if(__ret__.type != lex_type, typevar,                            \
-			FSTR "Expected %s, got %s", FPOS(this, __ret__),       \
+			PAR_FSTR "Expected %s, got %s", PAR_FPOS(this, __ret__),       \
 			lex_symbol_arr[lex_type], lex_get_type_str(__ret__));  \
 	__ret__;                                                              })
 #pragma endregion
@@ -400,14 +404,12 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 			else          log_plain("[]");
 		log("");
 	/* expressions */
-	break; case AST_PLUS ... AST_FUNC_CALL:
+	break; case AST_FUNC_CALL:
+		log_plain("(func-call %.*s", _NAME_);
+		par_full_print(f, this, it.pos, PAR_INLINE);
+		log(")");
+	break; case AST_PLUS ... AST_CMP_GEQ:
 	       case AST_BOOL_AND ... AST_BOOL_NOT:
-		if (node.type == AST_FUNC_CALL) {
-			log_plain("(func-call %.*s", _NAME_);
-			par_full_print(f, this, it.pos, PAR_INLINE);
-			log(")");
-			break;
-		}
 		log_plain("(%s ", _TYPE_);
 		{
 			assert(ast_is_child(it));
@@ -594,8 +596,8 @@ parse (parser_t *this)
 {
 	ast_node_pos ret = parse_decl(this, DANA_KW_DEF);
 	throw_if(par_peek_token(this).type != DANA_EOF, ast_node_pos,
-			FSTR "Found token after end of main function: %.*s",
-			FPOS(this, ret),
+			PAR_FSTR "Found token after end of main function: %.*s",
+			PAR_FPOS(this, ret),
 			UNSLICE(par_get_value(this, par_peek_token(this))));
 	return ret;
 }
@@ -821,15 +823,15 @@ parse_args (parser_t *this, enum ast_type to_match)
 
 	// dbg(node_at(this, node).length, "ARG:\tno. %u");
 	tmp = try(parse_expr(this, 0),
-			FSTR "while parsing arguments", FPOS(this, node));
+			PAR_FSTR "while parsing arguments", PAR_FPOS(this, node));
 	node_at(this, node).length += node_at(this, tmp).length;
 
 	while (par_peek_token(this).type == DANA_COMMA) {
 		par_pop_token(this);
 		// dbg(node_at(this, node).length, "ARG:\tno. %u");
 		try(parse_expr(this, 0),
-				FSTR "while parsing arguments",
-				FPOS(this, node));
+				PAR_FSTR "while parsing arguments",
+				PAR_FPOS(this, node));
 		node_at(this, node).length += 1;
 	}
 
@@ -850,11 +852,11 @@ parse_block (parser_t *this, lex_token_t guide)
 		);
 		while ((tok = par_peek_token(this)).type != DANA_KW_END) {
 			throw_if(tok.type == DANA_EOF, ast_node_pos,
-					FSTR "Reached EOF before block end",
-					FPOS(this, tok));
+					PAR_FSTR "Reached EOF before block end",
+					PAR_FPOS(this, tok));
 			tmp = try(parse_stmt(this),
-					FSTR "while parsing block body",
-					FPOS(this, node));
+					PAR_FSTR "while parsing block body",
+					PAR_FPOS(this, node));
 			node_at(this, node).length += node_at(this, tmp).length;
 		}
 		par_pop_token(this);
@@ -870,8 +872,8 @@ parse_block (parser_t *this, lex_token_t guide)
 		       indent_cmp(guide_ind, par_get_indent(this, tok.pos)) < 0) {
 			if (tok.type == DANA_EOF) break;
 			tmp = try(parse_stmt(this),
-					FSTR "while parsing block body",
-					FPOS(this, node));
+					PAR_FSTR "while parsing block body",
+					PAR_FPOS(this, node));
 			node_at(this, node).length += node_at(this, tmp).length;
 		}
 		return node;
@@ -894,32 +896,32 @@ parse_cond (parser_t *this)
 		.type = AST_COND, .src = guide.pos,
 	), tmp;
 
-	tmp = try(parse_expr(this, 0), FSTR "while parsing if-cond",
-			FPOS(this, node));
+	tmp = try(parse_expr(this, 0), PAR_FSTR "while parsing if-cond",
+			PAR_FPOS(this, node));
 	node_at(this, node).length += node_at(this, tmp).length;
 
 	par_pop_require(this, DANA_COLON, ast_node_pos);
-	tmp = try(parse_block(this, guide), FSTR "while parsing if-body",
-			FPOS(this, node));
+	tmp = try(parse_block(this, guide), PAR_FSTR "while parsing if-body",
+			PAR_FPOS(this, node));
 	node_at(this, node).length += node_at(this, tmp).length;
 
 	while (par_peek_token(this).type == DANA_KW_ELIF) {
 		guide = par_pop_token(this);
-		tmp = try(parse_expr(this, 0), FSTR "while parsing elif-cond",
-				FPOS(this, node));
+		tmp = try(parse_expr(this, 0), PAR_FSTR "while parsing elif-cond",
+				PAR_FPOS(this, node));
 		node_at(this, node).length += node_at(this, tmp).length;
 
 		par_pop_require(this, DANA_COLON, ast_node_pos);
-		tmp = try(parse_block(this, guide), FSTR "while parsing elif-body",
-				FPOS(this, node));
+		tmp = try(parse_block(this, guide), PAR_FSTR "while parsing elif-body",
+				PAR_FPOS(this, node));
 		node_at(this, node).length += node_at(this, tmp).length;
 	}
 
 	if (par_peek_token(this).type == DANA_KW_ELSE) {
 		guide = par_pop_token(this);
 		par_pop_require(this, DANA_COLON, ast_node_pos);
-		tmp = try(parse_block(this, guide), FSTR "while parsing else-body",
-				FPOS(this, node));
+		tmp = try(parse_block(this, guide), PAR_FSTR "while parsing else-body",
+				PAR_FPOS(this, node));
 		node_at(this, node).length += node_at(this, tmp).length;
 	}
 
@@ -948,8 +950,8 @@ parse_decl (parser_t *this, enum lex_type to_match)
 				  break;
 		case DANA_KW_BYTE: node_at(this, node).type += 2;
 				   break;
-		default: throw(ast_node_pos, FSTR "Invalid return type %s",
-					 FPOS(this, node), lex_get_type_str(tok));
+		default: throw(ast_node_pos, PAR_FSTR "Invalid return type %s",
+					 PAR_FPOS(this, node), lex_get_type_str(tok));
 		};
 	}
 
@@ -963,8 +965,8 @@ parse_decl (parser_t *this, enum lex_type to_match)
 			tok = par_pop_token(this);
 			// dbg(lex_get_type_str(par_peek_token(this)), "%s");
 			tmp = try(parse_var(this, DANA_KW_AS),
-					FSTR "while parsing function declaration arguments for %.*s",
-					FPOS(this, node),
+					PAR_FSTR "while parsing function declaration arguments for %.*s",
+					PAR_FPOS(this, node),
 					UNSLICE(par_get_name(this, node_at(this, node)))
 				 );
 			node_at(this, node).length += node_at(this, tmp).length;
@@ -977,14 +979,14 @@ parse_decl (parser_t *this, enum lex_type to_match)
 	if (to_match == DANA_KW_DEF) {
 		node_at(this, node).def_data.body_offset = node_at(this, node).length;
 		tmp = try(parse_local_defs(this),
-				FSTR "while parsing local defs for %.*s",
-				FPOS(this, node),
+				PAR_FSTR "while parsing local defs for %.*s",
+				PAR_FPOS(this, node),
 				UNSLICE(par_get_name(this, node_at(this, node)))
 			 );
 		node_at(this, node).length += node_at(this, tmp).length;
 		tmp = try(parse_block(this, guide),
-				FSTR "while parsing function definition of %.*s",
-				FPOS(this, node),
+				PAR_FSTR "while parsing function definition of %.*s",
+				PAR_FPOS(this, node),
 				UNSLICE(par_get_name(this, node_at(this, node)))
 			 );
 		node_at(this, node).length += node_at(this, tmp).length;
@@ -1028,15 +1030,15 @@ parse_expr (parser_t *this, uint8_t thrs)
 		return node;
 	default:
 		throw_if(!bp_operator_is(tok, PREFIX), ast_node_pos,
-				FSTR "expression must begin with value or prefix operator, found %s",
-				FPOS(this, tok), lex_get_type_str(tok));
+				PAR_FSTR "expression must begin with value or prefix operator, found %s",
+				PAR_FPOS(this, tok), lex_get_type_str(tok));
 		node = par_emplace_node(this, .type = tok.type, .src = tok.pos);
 		tmp = try(parse_expr(this, bp_rhs(tok, PREFIX)),
-				FSTR "while parsing operand of prefix operator %s",
-				FPOS(this, tok), lex_get_type_str(tok));
+				PAR_FSTR "while parsing operand of prefix operator %s",
+				PAR_FPOS(this, tok), lex_get_type_str(tok));
 		node_at(this, node).length += node_at(this, tmp).length;
 		return node;
-	}), FSTR "while parsing start of expression", FPOS(this, tok));
+	}), PAR_FSTR "while parsing start of expression", PAR_FPOS(this, tok));
 
 	while (par_peek_token(this).type != DANA_EOF) {
 		tok = par_peek_token(this);
@@ -1057,8 +1059,8 @@ parse_expr (parser_t *this, uint8_t thrs)
 					.name = id,
 				);
 				tmp = try(parse_args(this, AST_FUNC_CALL),
-						FSTR "while parsing func-call",
-						FPOS(this, tok));
+						PAR_FSTR "while parsing func-call",
+						PAR_FPOS(this, tok));
 				node_at(this, node).length += node_at(this, tmp).length;
 				par_pop_require(this, DANA_CLOSE_PAREN, ast_node_pos);
 			} else {
@@ -1082,8 +1084,8 @@ parse_expr (parser_t *this, uint8_t thrs)
 				.length = 1 + length,
 			}));
 			tmp = try(parse_expr(this, bp_rhs(tok, INFIX)),
-					FSTR "while parsing rhs of operator %s",
-					FPOS(this, tok), lex_get_type_str(tok));
+					PAR_FSTR "while parsing rhs of operator %s",
+					PAR_FPOS(this, tok), lex_get_type_str(tok));
 			node_at(this, node).length += node_at(this, tmp).length;
 			continue;
 		}
@@ -1108,12 +1110,12 @@ parse_local_defs (parser_t *this)
 		case DANA_KW_DECL:
 		case DANA_KW_DEF:
 			tmp = try(parse_decl(this, tok.type),
-					FSTR, FPOS(this, tok));
+					PAR_FSTR, PAR_FPOS(this, tok));
 			node_at(this, node).length += node_at(this, tmp).length;
 			continue;
 		case DANA_KW_VAR:
 			par_pop_token(this);
-			tmp = try(parse_var(this, DANA_KW_IS), FSTR, FPOS(this, tok));
+			tmp = try(parse_var(this, DANA_KW_IS), PAR_FSTR, PAR_FPOS(this, tok));
 			node_at(this, node).length += node_at(this, tmp).length;
 			continue;
 		default:
@@ -1142,23 +1144,23 @@ parse_lvalue (parser_t *this)
 			.pl_data.str = par_push_text(this, tok)
 		);
 	default:
-		throw(ast_node_pos, FSTR "Invalid lvalue: %s",
-				FPOS(this, tok), lex_get_type_str(tok));
+		throw(ast_node_pos, PAR_FSTR "Invalid lvalue: %s",
+				PAR_FPOS(this, tok), lex_get_type_str(tok));
 	});
 
 	if (par_peek_token(this).type == DANA_OPEN_BRACKET) {
 		throw_if(node_at(this, node).type != AST_NAME,
 				ast_node_pos,
-				FSTR "[] operator on invalid lvalue",
-				FPOS(this, node)
+				PAR_FSTR "[] operator on invalid lvalue",
+				PAR_FPOS(this, node)
 			);
 		node_at(this, node).type = AST_ARRAY_AT;
 
 		while ((tok = par_peek_token(this)).type == DANA_OPEN_BRACKET) {
 			par_pop_token(this);
 			tmp = try(parse_expr(this, 0),
-					FSTR "while parsing subscript",
-					FPOS(this, tok));
+					PAR_FSTR "while parsing subscript",
+					PAR_FPOS(this, tok));
 			node_at(this, node).length += par_get_node(this, tmp).length;
 			par_pop_require(this, DANA_CLOSE_BRACKET, ast_node_pos);
 		}
@@ -1183,8 +1185,8 @@ parse_stmt (parser_t *this)
 		par_pop_require(this, DANA_COLON, ast_node_pos);
 		node = par_emplace_node(this, .type = AST_RETURN, .src = tok.pos);
 		tmp = try(parse_expr(this, 0),
-				FSTR "while parsing return value",
-				FPOS(this, tok));
+				PAR_FSTR "while parsing return value",
+				PAR_FPOS(this, tok));
 		node_at(this, node).length += node_at(this, tmp).length;
 		return node;
 	case DANA_KW_BREAK:
@@ -1204,14 +1206,14 @@ parse_stmt (parser_t *this)
 		}
 		par_pop_require(this, DANA_COLON, ast_node_pos);
 		tmp = try(parse_block(this, tok),
-				FSTR "while parsing loop block",
-				FPOS(this, tok));
+				PAR_FSTR "while parsing loop block",
+				PAR_FPOS(this, tok));
 		node_at(this, node).length += node_at(this, tmp).length;
 		return node;
 	/* assign - proc-call */
 	case DANA_NAME:
 		this->top.pos -= 1;
-		node = try(parse_lvalue(this), FSTR, FPOS(this, tok));
+		node = try(parse_lvalue(this), PAR_FSTR, PAR_FPOS(this, tok));
 
 		dbg(lex_get_type_str(par_peek_token(this)), "%s");
 		switch (par_peek_token(this).type) {
@@ -1223,19 +1225,19 @@ parse_stmt (parser_t *this)
 				.length = 1 + args_length,
 			}));
 			tmp = try(parse_expr(this, 0),
-					FSTR "while parsing assigning value",
-					FPOS(this, node));
+					PAR_FSTR "while parsing assigning value",
+					PAR_FPOS(this, node));
 			node_at(this, node).length += node_at(this, tmp).length;
 			return node;
 		case DANA_COLON:
 			throw_if(node_at(this, node).type != AST_NAME, ast_node_pos,
-					FSTR "proc-call must be on name, found %s",
-					FPOS(this, tok), lex_get_type_str(tok));
+					PAR_FSTR "proc-call must be on name, found %s",
+					PAR_FPOS(this, tok), lex_get_type_str(tok));
 			par_pop_token(this);
 			args_length = node_at(this, try(
 					parse_args(this, AST_PROC_CALL),
-					FSTR "while parsing procedure call %.*s",
-					FPOS(this, tok),
+					PAR_FSTR "while parsing procedure call %.*s",
+					PAR_FPOS(this, tok),
 					UNSLICE(par_get_name(this, node_at(this, node)))
 					)).length;
 		default:
@@ -1248,8 +1250,8 @@ parse_stmt (parser_t *this)
 			};
 			return node;
 		}
-	default: throw(ast_node_pos, FSTR "Invalid token at start of stmt: %.*s",
-				 FPOS(this, tok),
+	default: throw(ast_node_pos, PAR_FSTR "Invalid token at start of stmt: %.*s",
+				 PAR_FPOS(this, tok),
 				 UNSLICE(par_get_value(this, tok)));
 	}
 }
@@ -1307,8 +1309,8 @@ parse_var (parser_t *this, enum lex_type to_match)
 			case DANA_CLOSE_BRACKET:
 				throw_if(!arr_empty(dimen),
 						ast_node_pos,
-						FSTR "Only first dimension can be variable",
-						FPOS(this, tok));
+						PAR_FSTR "Only first dimension can be variable",
+						PAR_FPOS(this, tok));
 				// printf("\t\tVar-array\n");
 				arr_type |= DTYPE_VAR;
 				arr_push(dimen, 0);
