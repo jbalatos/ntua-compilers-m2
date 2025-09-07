@@ -134,7 +134,8 @@ arr_grow_int (void *a, size_t to_add, size_t min_cap,
 	void *ret;
 
 	if (new_cap < min_cap) new_cap = min_cap;
-	if (min_cap < 2 * arr_ucap(a)) new_cap = 2 * arr_ucap(a);
+	if (new_cap <= arr_ucap(a)) return a;
+	if (new_cap < 2 * arr_ucap(a)) new_cap = 2 * arr_ucap(a);
 	ret = sizeof(arr_header_t) + 
 		malloc(new_cap * elemsize + sizeof(arr_header_t));
 	*arr_header(ret) = (arr_header_t){ .capacity = new_cap };
