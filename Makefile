@@ -1,4 +1,5 @@
-CFLAGS=-Wall -Werror -g -std=gnu11 -D_XOPEN_SOURCE=700
+CC = gcc
+CFLAGS=-Wall -Werror -g -std=gnu11 -D_XOPEN_SOURCE=700 -Wno-unknown-pragmas
 SRC = main.c
 DIST = main
 
