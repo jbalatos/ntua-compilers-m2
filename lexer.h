@@ -463,7 +463,7 @@ lex_next_token (lexer_t *this, const lex_token_t *prev)
 	do {
 		if (prev) start =  _lex_token_end(this, *prev);
 		if (_lex_eof(this, start))
-			return (lex_token_t){ DANA_EOF };
+			return (lex_token_t){ .type = DANA_EOF };
 		ret = _lex_token_at(this, start);
 		prev = &ret;
 	} while (ret.type == DANA_COMMENT);

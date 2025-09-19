@@ -8,6 +8,9 @@
 #if !defined(typeof)
 #	define typeof __typeof__
 #endif
+#if !defined(Unused)
+#	define Unused __attribute__((unused))
+#endif
 
 #pragma push_macro("ADDR_OF")
 #define ADDR_OF(x) ((typeof(x)[1]){(x)})
@@ -111,7 +114,7 @@ alloc_dup_int (alloc_t *this, slice_t sl, size_t elem_size)
 /** LIBC: heap allocator */
 /* {{{ */
 static slice_t
-libc_alloc (alloc_t *ap, size_t elem_size, size_t length)
+libc_alloc (Unused alloc_t *ap, size_t elem_size, size_t length)
 {
 	void *ptr = malloc(elem_size * length);
 	if (ptr) return (slice_t) { ptr, length };
@@ -119,7 +122,7 @@ libc_alloc (alloc_t *ap, size_t elem_size, size_t length)
 }
 
 static void
-libc_dealloc (alloc_t *ap, size_t elem_size, slice_t slice)
+libc_dealloc (Unused alloc_t *ap, Unused size_t elem_size, slice_t slice)
 {
 	free(slice.ptr);
 }
@@ -187,7 +190,7 @@ alloc_arena_alloc (alloc_t *ap, size_t elem_size, size_t length)
 }
 
 static void
-alloc_arena_dealloc (alloc_t *ap, size_t elem_size, slice_t slice)
+alloc_arena_dealloc (Unused alloc_t *ap, Unused size_t elem_size, Unused slice_t slice)
 {}
 
 alloc_arena_t __attribute__((unused))
@@ -242,7 +245,7 @@ alloc_freelist_alloc (alloc_t *ap, size_t elem_size, size_t length)
 }
 
 static void
-alloc_freelist_dealloc (alloc_t *ap, size_t elem_size, slice_t slice)
+alloc_freelist_dealloc (alloc_t *ap, Unused size_t elem_size, slice_t slice)
 {
 	alloc_freelist_t *this = (alloc_freelist_t*)ap;
 	struct alloc_freelist_node_t *node = slice.ptr;

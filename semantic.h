@@ -151,7 +151,7 @@ _sem_check (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 	break; case AST_VARS:
 		for(; ast_is_child(it); it = ast_next_child(it))
 			throw_if(st_emplace_symbol(st, it.node->name,
-						sem_get_dtype(this, *it.node),
+						.type = sem_get_dtype(this, *it.node),
 					), bool,
 					PAR_FSTR "variable name %.*s already used in current scope",
 					PAR_FPOS(this, *it.node),
@@ -174,7 +174,7 @@ _sem_check (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 		st_pop_scope(st);
 	break; case AST_DECL_PROC ... AST_DECL_BYTE:
 	       case AST_DEF_PROC ... AST_DEF_BYTE:
-		throw_if(st_emplace_symbol(st, node.name, sem_get_dtype(this, node)),
+		throw_if(st_emplace_symbol(st, node.name, .type = sem_get_dtype(this, node)),
 				bool,
 				PAR_FSTR "function name %.*s is already being used in current scope",
 				PAR_FPOS(this, node),
@@ -194,7 +194,7 @@ _sem_check (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 				UNSLICE(par_get_name(this, node))
 				);
 	break; case AST_LOOP:
-		throw_if(st_emplace_symbol(st, node.name, DTYPE_LOOP),
+		throw_if(st_emplace_symbol(st, node.name, .type = DTYPE_LOOP),
 				bool,
 				PAR_FSTR "loop name %.*s already being used in current scope",
 				PAR_FPOS(this, node),
@@ -277,7 +277,7 @@ _sem_check_def (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 	ast_node_it it = ast_get_child(this, pos);
 
 	st_push_scope(st);
-	st_emplace_symbol(st, node.name, sem_get_dtype(this, node)); /* cannot overwrite on new scope */
+	st_emplace_symbol(st, node.name, .type = sem_get_dtype(this, node)); /* cannot overwrite on new scope */
 	/* arguments */
 	for (; POS_CMP(POS_ADV(pos, node.def_data.body_offset), it.pos);
 			it = ast_next_child(it))
@@ -314,12 +314,12 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 	/* literal */
 	case AST_NUMBER:
 		return (dtype_t){
-			(0 <= node.pl_data.num && node.pl_data.num < (1 << 8))
+			.type = (0 <= node.pl_data.num && node.pl_data.num < (1 << 8))
 				? DTYPE_BYTE : DTYPE_INT
 		};
 	case AST_TRUE ... AST_FALSE:
 	case AST_CHAR:
-		return (dtype_t){ DTYPE_BYTE };
+		return (dtype_t){ .type = DTYPE_BYTE };
 	case AST_STRING:
 		return (dtype_t){
 			.type = DTYPE_ARRAY | DTYPE_BYTE,
@@ -334,7 +334,7 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 				UNSLICE(par_get_name(this, node)));
 		return lhs;
 	case AST_ARRAY_AT: // TODO
-		return (dtype_t){ DTYPE_INT };
+		return (dtype_t){ .type = DTYPE_INT };
 	/* func-call */
 	case AST_FUNC_CALL:
 		lhs = par_get_type(this, node.name);
@@ -354,7 +354,7 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 					PAR_FSTR, PAR_FPOS(this, node));
 		}
 		// TODO: Add check of types to func signature
-		return (dtype_t){ lhs.type ^ DTYPE_FUNC };
+		return (dtype_t){ .type = lhs.type ^ DTYPE_FUNC };
 	/* unary operators */
 	case AST_BIT_NOT:
 	case AST_BOOL_NOT:
@@ -366,7 +366,7 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 					PAR_FSTR "operand in '%s' is not a number",
 					PAR_FPOS(this, node),
 					ast_get_type_str(node));
-			return (dtype_t){ lhs.type };
+			return (dtype_t){ .type = lhs.type };
 		}
 	/* binary operators */
 	case AST_PLUS:
@@ -388,7 +388,7 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 		/* type conversion */
 		if (lhs.type == DTYPE_INT || rhs.type == DTYPE_INT)
 			lhs.type = DTYPE_INT;
-		return (dtype_t){ lhs.type };
+		return (dtype_t){ .type = lhs.type };
 	default:
 		return (dtype_t){};
 	}

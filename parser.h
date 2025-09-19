@@ -111,38 +111,37 @@ extern ast_node_pos        parse(parser_t *this);
 /** private methods */
 #define par_emplace_node(p, decl...) \
 	par_push_node((p), (ast_node_t){ .length = 1, decl })
-extern const indent_info_t par_get_indent(const parser_t *this, lex_buf_pos pos);
-extern const slice_char_t  par_get_name(const parser_t *this, ast_node_t node);
-extern const ast_node_t    par_get_node(const parser_t *this, ast_node_pos pos);
-extern const file_pos     _par_get_fpos_by_bpos(const parser_t *this, lex_buf_pos pos);
-extern const file_pos     _par_get_fpos_by_node(const parser_t *this, ast_node_t node);
-extern const file_pos     _par_get_fpos_by_pos(const parser_t *this, ast_node_pos pos);
-extern const file_pos     _par_get_fpos_by_tok(const parser_t *this, lex_token_t tok);
-extern const file_pos     _par_get_fpos_by_tpos(const parser_t *this, par_token_pos pos);
-extern const char*         par_get_text(const parser_t *this, par_text_pos pos);
-extern const lex_token_t   par_get_token(const parser_t *this, par_token_pos pos);
-extern const dtype_t       par_get_type(const parser_t *this, uint16_t pos);
-extern const slice_char_t _par_get_value_by_pos(const parser_t *this, par_token_pos pos);
-extern const slice_char_t _par_get_value_by_tok(const parser_t *this, lex_token_t tok);
-extern ast_node_t*         par_node_at(const parser_t *this, ast_node_pos pos);
-extern lex_token_t         par_peek_token(parser_t *this);
-// extern lex_token_t         par_pop_require(parser_t *this, enum lex_type type);
-extern lex_token_t         par_pop_token(parser_t *this);
-extern uint16_t            par_push_name(parser_t *this, lex_token_t tok);
-extern ast_node_pos        par_push_node(parser_t *this, ast_node_t node);
-extern par_text_pos        par_push_text(parser_t *this, lex_token_t tok);
-extern uint16_t            par_push_type(parser_t *this, dtype_t type);
-extern ast_node_pos        par_reserve_node(parser_t *this);
-extern void                par_reverse_range(parser_t *this, ast_node_pos begin, ast_node_pos end);
+extern indent_info_t par_get_indent(const parser_t *this, lex_buf_pos pos);
+extern slice_char_t  par_get_name(const parser_t *this, ast_node_t node);
+extern ast_node_t    par_get_node(const parser_t *this, ast_node_pos pos);
+extern file_pos     _par_get_fpos_by_bpos(const parser_t *this, lex_buf_pos pos);
+extern file_pos     _par_get_fpos_by_node(const parser_t *this, ast_node_t node);
+extern file_pos     _par_get_fpos_by_pos(const parser_t *this, ast_node_pos pos);
+extern file_pos     _par_get_fpos_by_tok(const parser_t *this, lex_token_t tok);
+extern file_pos     _par_get_fpos_by_tpos(const parser_t *this, par_token_pos pos);
+extern const char*   par_get_text(const parser_t *this, par_text_pos pos);
+extern lex_token_t   par_get_token(const parser_t *this, par_token_pos pos);
+extern dtype_t       par_get_type(const parser_t *this, uint16_t pos);
+extern slice_char_t _par_get_value_by_pos(const parser_t *this, par_token_pos pos);
+extern slice_char_t _par_get_value_by_tok(const parser_t *this, lex_token_t tok);
+extern ast_node_t*   par_node_at(const parser_t *this, ast_node_pos pos);
+extern lex_token_t   par_peek_token(parser_t *this);
+extern lex_token_t   par_pop_token(parser_t *this);
+extern uint16_t      par_push_name(parser_t *this, lex_token_t tok);
+extern ast_node_pos  par_push_node(parser_t *this, ast_node_t node);
+extern par_text_pos  par_push_text(parser_t *this, lex_token_t tok);
+extern uint16_t      par_push_type(parser_t *this, dtype_t type);
+extern ast_node_pos  par_reserve_node(parser_t *this);
+extern void          par_reverse_range(parser_t *this, ast_node_pos begin, ast_node_pos end);
 /** parser functions */
-extern ast_node_pos        parse_args(parser_t *this, enum ast_type to_match);
-extern ast_node_pos        parse_block(parser_t *this, lex_token_t guide);
-extern ast_node_pos        parse_decl(parser_t *this, enum lex_type to_match);
-extern ast_node_pos        parse_expr(parser_t *this, uint8_t thrs);
-extern ast_node_pos        parse_local_defs(parser_t *this);
-extern ast_node_pos        parse_lvalue(parser_t *this);
-extern ast_node_pos        parse_stmt(parser_t *this);
-extern ast_node_pos        parse_var(parser_t *this, enum lex_type to_match);
+extern ast_node_pos  parse_args(parser_t *this, enum ast_type to_match);
+extern ast_node_pos  parse_block(parser_t *this, lex_token_t guide);
+extern ast_node_pos  parse_decl(parser_t *this, enum lex_type to_match);
+extern ast_node_pos  parse_expr(parser_t *this, uint8_t thrs);
+extern ast_node_pos  parse_local_defs(parser_t *this);
+extern ast_node_pos  parse_lvalue(parser_t *this);
+extern ast_node_pos  parse_stmt(parser_t *this);
+extern ast_node_pos  parse_var(parser_t *this, enum lex_type to_match);
 /** utility macros */
 #define node_at(p, pos) (*par_node_at(p, pos))
 #define PAR_FSTR            "%u:%u:\t"
@@ -603,7 +602,7 @@ parse (parser_t *this)
 }
 
 #pragma region PARSER METHODS
-const indent_info_t
+indent_info_t
 par_get_indent (const parser_t *this, lex_buf_pos pos)
 {
 	indent_info_t ret = {0};
@@ -618,7 +617,7 @@ par_get_indent (const parser_t *this, lex_buf_pos pos)
 	return ret;
 }
 
-inline const slice_char_t
+inline slice_char_t
 par_get_name (const parser_t *this, ast_node_t node)
 {
 	if (node.name == 0) return (slice_char_t){};
@@ -627,7 +626,7 @@ par_get_name (const parser_t *this, ast_node_t node)
 	_assert(false, "Name ID %u not found", node.name);
 }
 
-inline const ast_node_t
+inline ast_node_t
 par_get_node (const parser_t *this, ast_node_pos pos)
 {
 	_assert(0 <= pos.pos && pos.pos < arr_ulen(this->nodes),
@@ -645,7 +644,7 @@ par_get_text (const parser_t *this, par_text_pos pos)
 	return this->text + pos.pos;
 }
 
-inline const lex_token_t
+inline lex_token_t
 par_get_token (const parser_t *this, par_token_pos pos)
 {
 	_assert(0 <= pos.pos && pos.pos < arr_ulen(this->tokens),
@@ -654,7 +653,7 @@ par_get_token (const parser_t *this, par_token_pos pos)
 	return this->tokens[pos.pos];
 }
 
-inline const dtype_t
+inline dtype_t
 par_get_type (const parser_t *this, uint16_t id)
 {
 	for (size_t i=0; i<arr_ucap(this->types); ++i)
@@ -765,43 +764,43 @@ par_reverse_range (parser_t *this, ast_node_pos begin, ast_node_pos end)
 #pragma endregion
 
 #pragma region GENERIC METHODS
-inline const file_pos
+inline file_pos
 _par_get_fpos_by_bpos (const parser_t *this, lex_buf_pos pos)
 {
 	return lex_get_file_pos(&this->lexer, pos);
 }
 
-inline const file_pos
+inline file_pos
 _par_get_fpos_by_node (const parser_t *this, ast_node_t node)
 {
 	return lex_get_file_pos(&this->lexer, node.src);
 }
 
-inline const file_pos
+inline file_pos
 _par_get_fpos_by_pos (const parser_t *this, ast_node_pos pos)
 {
 	return lex_get_file_pos(&this->lexer, par_get_node(this, pos).src);
 }
 
-inline const file_pos
+inline file_pos
 _par_get_fpos_by_tok (const parser_t *this, lex_token_t tok)
 {
 	return lex_get_file_pos(&this->lexer, tok.pos);
 }
 
-inline const file_pos
+inline file_pos
 _par_get_fpos_by_tpos (const parser_t *this, par_token_pos pos)
 {
 	return lex_get_file_pos(&this->lexer, par_get_token(this, pos).pos);
 }
 
-inline const slice_char_t
+inline slice_char_t
 _par_get_value_by_pos (const parser_t *this, par_token_pos pos)
 {
 	return lex_get_token(&this->lexer, par_get_token(this, pos));
 }
 
-inline const slice_char_t
+inline slice_char_t
 _par_get_value_by_tok (const parser_t *this, lex_token_t tok)
 {
 	return lex_get_token(&this->lexer, tok);

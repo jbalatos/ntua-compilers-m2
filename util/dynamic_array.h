@@ -77,11 +77,11 @@
 		h, hm_hash(k),                             \
 		((typeof(*h)){ .key = (k), .value = (v) }) \
 		)
-#define hm_puts(h, hash, s...) (                             \
-		hm_maybegrow(h, 1, 0),                       \
-		hm_put_int((void*)h, hash, arr_ulen(h))      \
-		< arr_ulen(h) ? 0 : ++arr_header(h)->length, \
-		(h)[hm_tmp(h)] = (s)                         )
+#define hm_puts(h, hash, s...) (                            \
+		hm_maybegrow(h, 1, 0),                      \
+		hm_put_int((void*)h, hash, arr_ulen(h))     \
+		< arr_len(h) ? 0 : ++arr_header(h)->length, \
+		(h)[hm_tmp(h)] = (s)                        )
 
 #define hm_del(h, k) (hm_del_int((void*)(h), hm_hash(k),            \
 			hm_hash(arr_back(h).key), sizeof(*h)) == -1 \
@@ -251,7 +251,7 @@ hm_put_int (void *map, size_t hash, size_t index)
 }
 
 ptrdiff_t __attribute__((unused))
-hm_del_int (void *map, size_t hash, size_t last, size_t elemsize)
+hm_del_int (void *map, size_t hash, size_t last, Unused size_t elemsize)
 {
 	hm_cell_t *table = arr_header(map)->hash_table;
 	size_t i = hash % arr_ucap(map), dist = 0;

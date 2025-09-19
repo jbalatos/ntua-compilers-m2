@@ -1,5 +1,5 @@
 CC = clang
-CFLAGS=-Wall -Werror -g -std=c23 -fblocks  -Wno-unknown-pragmas
+CFLAGS=-Wall -Wextra -Werror -g -std=c23 -fblocks  -Wno-unknown-pragmas
 LDLIBS=-lBlocksRuntime
 SRC = main.c
 DIST = main
