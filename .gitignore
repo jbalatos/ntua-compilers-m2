@@ -6,3 +6,4 @@ main
 .exrc
 tags
 etc/
+.ccls-cache
