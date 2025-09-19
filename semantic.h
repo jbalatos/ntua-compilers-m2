@@ -75,7 +75,7 @@ sym_table_destroy (sym_table_t *this)
 dtype_t
 st_get_symbol (const sym_table_t *this, uint16_t name)
 {
-	ssize_t idx = -1;
+	ptrdiff_t idx = -1;
 
 	for (st_scope_t *it = *this; it; it = stack_next(it))
 		if ((idx = hm_geti(*it, name)) != -1)

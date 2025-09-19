@@ -2,6 +2,10 @@
 
 #include <stdlib.h>
 
+#if !defined(typeof)
+#	define typeof __typeof__
+#endif
+
 #pragma region DEBUGGING
 #define dbg(x, fmt) \
 	printf("DBG:\t%s:%d\t" #x ":\t" fmt "\n", __FILE__, __LINE__, x)
@@ -19,10 +23,21 @@
 	(a) = (b); (b) = __tmp__;  \
 } while (0)
 
-#define SWITCH(val, type, body...) ({                      \
+#if defined(__clang__)
+#	ifndef __BLOCKS__
+#		error must be compiled with -fblocks option enabled
+#	endif
+#	include <Block.h>
+#	define SWITCH(val, type, body...) ({                                 \
+		type (^__fn__)(typeof(+val)) = ^type(typeof(+val) __param__) \
+		{ switch(__param__) {body}; };                               \
+		__fn__(val);                                                })
+#else
+#	define SWITCH(val, type, body...) ({               \
 		inline type __fn__(typeof(+val) __param__) \
 		{ switch(__param__) {body}; };             \
 		__fn__(val);                              })
+#endif
 #pragma endregion
 
 #pragma region SLICE_CHAR_T TO C STRING

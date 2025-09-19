@@ -224,7 +224,7 @@ fix_ast_sym_arr (void)
 #undef TK
 #undef LT
 
-inline const char*
+const char*
 ast_get_type_str (ast_node_t node)
 { return ast_symbol_arr[node.type]; }
 
@@ -1010,9 +1010,10 @@ parse_expr (parser_t *this, uint8_t thrs)
 			.pl_data.num = atoi(sl.ptr),
 		);
 	} else node = try(SWITCH(tok.type, ast_node_pos, {
+	ast_node_pos ret, tmp;
 	/* literal */
 	case DANA_KW_TRUE ... DANA_KW_FALSE:
-		return par_emplace_node(this, .type = tok.type, .src = tok.pos);
+		return par_emplace_node(this, .type = (enum ast_type)tok.type, .src = tok.pos);
 	case DANA_CHAR:
 		return par_emplace_node(this,
 			.type = AST_CHAR, .src = tok.pos,
@@ -1025,19 +1026,19 @@ parse_expr (parser_t *this, uint8_t thrs)
 		return parse_lvalue(this);
 	/* prefix operators */
 	case DANA_OPEN_PAREN:
-		node = parse_expr(this, 0);
+		ret = parse_expr(this, 0);
 		par_pop_require(this, DANA_CLOSE_PAREN, ast_node_pos);
-		return node;
+		return ret;
 	default:
 		throw_if(!bp_operator_is(tok, PREFIX), ast_node_pos,
 				PAR_FSTR "expression must begin with value or prefix operator, found %s",
 				PAR_FPOS(this, tok), lex_get_type_str(tok));
-		node = par_emplace_node(this, .type = tok.type, .src = tok.pos);
+		ret = par_emplace_node(this, .type = (enum ast_type)tok.type, .src = tok.pos);
 		tmp = try(parse_expr(this, bp_rhs(tok, PREFIX)),
 				PAR_FSTR "while parsing operand of prefix operator %s",
 				PAR_FPOS(this, tok), lex_get_type_str(tok));
-		node_at(this, node).length += node_at(this, tmp).length;
-		return node;
+		node_at(this, ret).length += node_at(this, tmp).length;
+		return ret;
 	}), PAR_FSTR "while parsing start of expression", PAR_FPOS(this, tok));
 
 	while (par_peek_token(this).type != DANA_EOF) {
@@ -1066,7 +1067,7 @@ parse_expr (parser_t *this, uint8_t thrs)
 			} else {
 				uint32_t length = node_at(this, node).length;
 				arr_ins(this->nodes, node.pos, ((ast_node_t){
-					.type = tok.type,
+					.type = (enum ast_type)tok.type,
 					.src = tok.pos,
 					.length = 1 + length,
 				}));
@@ -1079,7 +1080,7 @@ parse_expr (parser_t *this, uint8_t thrs)
 			par_pop_token(this);
 			uint32_t length = node_at(this, node).length;
 			arr_ins(this->nodes, node.pos, ((ast_node_t){
-				.type = tok.type,
+				.type = (enum ast_type)tok.type,
 				.src = tok.pos,
 				.length = 1 + length,
 			}));
@@ -1180,7 +1181,7 @@ parse_stmt (parser_t *this)
 	else switch ((tok = par_pop_token(this)).type) {
 	case DANA_KW_SKIP:
 	case DANA_KW_EXIT:
-		return par_emplace_node(this, .type = tok.type, .src = tok.pos);
+		return par_emplace_node(this, .type = (enum ast_type)tok.type, .src = tok.pos);
 	case DANA_KW_RETURN:
 		par_pop_require(this, DANA_COLON, ast_node_pos);
 		node = par_emplace_node(this, .type = AST_RETURN, .src = tok.pos);
@@ -1191,7 +1192,7 @@ parse_stmt (parser_t *this)
 		return node;
 	case DANA_KW_BREAK:
 	case DANA_KW_CONT:
-		node = par_emplace_node(this, .type = tok.type, .src = tok.pos);
+		node = par_emplace_node(this, .type = (enum ast_type)tok.type, .src = tok.pos);
 		if (par_peek_token(this).type == DANA_COLON) {
 			par_pop_token(this);
 			id = par_push_name(this, par_pop_token(this));
@@ -1289,7 +1290,7 @@ parse_var (parser_t *this, enum lex_type to_match)
 		}
 		break;
 	case DANA_KW_INT ... DANA_KW_BYTE:
-		template.type = tok.type;
+		template.type = (enum ast_type)tok.type;
 		break;
 	default: _assert(false, "Invalid var type");
 	}

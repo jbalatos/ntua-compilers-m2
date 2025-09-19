@@ -5,6 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if !defined(typeof)
+#	define typeof __typeof__
+#endif
+
 #pragma push_macro("ADDR_OF")
 #define ADDR_OF(x) ((typeof(x)[1]){(x)})
 #pragma push_macro("PRAGMA")
