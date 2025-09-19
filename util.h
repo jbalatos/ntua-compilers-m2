@@ -44,11 +44,11 @@
 typedef struct { char *ptr; char backup; } slice_temp_t;
 void slice_temp_cleanup (slice_temp_t *this) { *this->ptr = this->backup; }
 
-#define SLICE_TMP_STR(sl)                                             \
-	slice_temp_t __attribute__((cleanup(slice_temp_cleanup)))     \
-		__SL__ ## __LINE__ = {                                \
-			(sl).ptr + (sl).length, (sl).ptr[(sl).length] \
-		};                                                    \
+#define SLICE_TMP_STR(sl)                                                     \
+	slice_temp_t __attribute__((unused, cleanup(slice_temp_cleanup)))     \
+		__SL__ ## __LINE__ = {                                        \
+			(sl).ptr + (sl).length, (sl).ptr[(sl).length]         \
+		};                                                            \
 	(sl).ptr[(sl).length] = '\0'
 #pragma endregion
 

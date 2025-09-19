@@ -374,6 +374,8 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 	ast_node_it it = ast_get_child(this, pos);
 	par_begin_line(f, this, pos, depth);
 
+	dtype_t type;
+	bool is_cond;
 	switch (node.type) {
 	/* literals */
 	case AST_TRUE ... AST_FALSE:
@@ -391,7 +393,7 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 	       case AST_REF_INT ... AST_REF_BYTE:
 		log("%s %.*s", _TYPE_, _NAME_);
 	break; case AST_ARRAY:
-		dtype_t type = par_get_type(this, node.var_data.array);
+		type = par_get_type(this, node.var_data.array);
 		assert(type.type & DTYPE_ARRAY);
 		if (type.type & DTYPE_INT) log_plain("int ");
 		else                       log_plain("byte ");
@@ -479,7 +481,6 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 		}
 		log("");
 	break; case AST_COND:
-		bool is_cond;
 		{
 			assert(ast_is_child(it));
 			log_plain("if ");
@@ -1118,7 +1119,7 @@ parse_local_defs (parser_t *this)
 			tmp = try(parse_var(this, DANA_KW_IS), PAR_FSTR, PAR_FPOS(this, tok));
 			node_at(this, node).length += node_at(this, tmp).length;
 			continue;
-		default:
+		default:;
 		}
 		break;
 	}

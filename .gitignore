@@ -7,3 +7,4 @@ main
 tags
 etc/
 .ccls-cache
+.vscode

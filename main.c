@@ -11,6 +11,9 @@
 #define SEM_DEBUG
 #include "semantic.h"
 
+//#define CGEN_IMPLEMENT
+//#include "codegen.h"
+
 const char fname[] = "etc/sample.dana";
 #define LENGTH(x) (sizeof(x)/sizeof(x[0]))
 
@@ -46,7 +49,7 @@ int main (int argc, char *argv[argc])
 	ast_node_pos root = parse(&parser);
 	if (!POS_OK(root)) return 1;
 
-	printf("\n=== AST ARRAY ===\n");
+	printf("\n=== AST ARRAY ===\n");	
 	for (size_t i=0; i<arr_ulen(parser.nodes); ++i)
 		switch (parser.nodes[i].type){
 		case AST_TRUE ... AST_FALSE:
@@ -124,6 +127,11 @@ int main (int argc, char *argv[argc])
 
 	printf("\n=== SEMANTICS ===\n");
 	if (!sem_check(&parser, root)) return 2;
+
+	/*printf("\n=== CODEGEN ===\n");
+	cgen_t CGEN_CLEANUP cgen;
+	cgen_create(&cgen);
+	cgen_generate_code(&cgen, &parser, root);*/
 
 	return 0;
 }
