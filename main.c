@@ -11,6 +11,9 @@
 #define SEM_DEBUG
 #include "semantic.h"
 
+#define CGEN_IMPLEMENT
+#include "codegen.h"
+
 const char fname[] = "etc/sample.dana";
 
 int main (int argc, char *argv[argc])
@@ -146,6 +149,11 @@ int main (int argc, char *argv[argc])
 	if (!sem_check(&parser, root)) printf("SEM ERROR!\n");
 	else printf("SEM OK!\n");
 	printf("\n");
+
+	printf("\n=== CODEGEN ===\n");
+	cgen_t CGEN_CLEANUP cgen;
+	cgen_create(&cgen);
+	cgen_generate_code(&cgen, &parser, root);
 
 	return 0;
 }
