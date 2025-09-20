@@ -1,12 +1,14 @@
+LLVMCONFIG = llvm-config-16
+
 CC = clang
-CFLAGS=-Wall -Wextra -Werror -g -std=gnu17 -fblocks  -Wno-unknown-pragmas
-LDLIBS=-lBlocksRuntime
+CFLAGS=-Wall -Wextra -Werror -g -std=gnu17 -fblocks  -Wno-unknown-pragmas `$(LLVMCONFIG) --cflags`
+LDLIBS=-lBlocksRuntime `$(LLVMCONFIG) --ldflags --system-libs --libs all`
 SRC = main.c
 DIST = main
 
 main:
 
-include $(SRC:.c=.d)
+include $(SRC:.c=.d)	
 
 %.d: %.c
 	@set -e; rm -f $@; \
