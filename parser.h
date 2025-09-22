@@ -14,6 +14,7 @@
 POS_DECL(par_token_pos, 32);
 POS_DECL(ast_node_pos, 32);
 POS_DECL(par_text_pos, 16);
+POS_DECL(dtype_pos, 16);
 
 #define LT_PAR(p, s) AST_ ## p,
 #define KW_PAR(p, s) AST_ ## p,
@@ -35,7 +36,7 @@ typedef struct {
 		AST_TYPE_LEN
 	} __attribute__((packed)) type;
 	lex_buf_pos src;
-	uint16_t length;
+	uint32_t length;
 	uint16_t name;
 	union {
 		union {
@@ -44,8 +45,8 @@ typedef struct {
 			uint16_t name;
 			char ch;
 		} pl_data;
-		struct { uint16_t body_offset; } def_data;
-		struct { uint16_t array; } var_data;
+		struct { uint16_t body_offset; } decl_data;
+		struct { dtype_pos array; } var_data;
 	};
 } ast_node_t;
 
@@ -63,16 +64,16 @@ typedef struct {
 typedef struct {
 	enum dtype {
 		DTYPE_NONE      = 0,
-		DTYPE_INT       = 1,
-		DTYPE_BYTE      = 2,
-		DTYPE_ARRAY     = 4,
-		DTYPE_VAR       = 8,
-		DTYPE_VAR_ARRAY = 12,
-		DTYPE_FUNC      = 8,
-		DTYPE_LOOP      = 3,
-	} __attribute__((packed)) type;
-	uint16_t dim;
-	uint16_t next;
+		DTYPE_INT       = 1 << 0,
+		DTYPE_BYTE      = 1 << 1,
+		DTYPE_ARRAY     = 1 << 2,
+		DTYPE_FUNC      = 1 << 3,
+		DTYPE_VAR_ARRAY = DTYPE_ARRAY | DTYPE_FUNC,
+		DTYPE_LOOP      = DTYPE_INT | DTYPE_BYTE,
+		DTYPE_ANY       = (1 << 4) - 1,
+	} __attribute__((flag_enum, packed)) type;
+	uint16_t length;
+	uint16_t array_length;
 } dtype_t;
 
 typedef struct {
@@ -80,9 +81,7 @@ typedef struct {
 	lex_token_t *tokens; /* dynamic array of the tokens created by lexer */
 	ast_node_t  *nodes;  /* dynamic array of the AST nodes */
 	char        *text;   /* dynamic array of const strings (0-terminated) */
-	struct {
-		dtype_t key; uint16_t value;
-	} *types;            /* hash map matching type => id */
+	dtype_t     *types;  /* dynamic array of types */
 	struct name_record {
 		size_t key; uint16_t value;
 		slice_char_t decl; /* first declaration of name, dbg only */
@@ -121,7 +120,7 @@ extern file_pos     _par_get_fpos_by_tok(const parser_t *this, lex_token_t tok);
 extern file_pos     _par_get_fpos_by_tpos(const parser_t *this, par_token_pos pos);
 extern const char*   par_get_text(const parser_t *this, par_text_pos pos);
 extern lex_token_t   par_get_token(const parser_t *this, par_token_pos pos);
-extern dtype_t       par_get_type(const parser_t *this, uint16_t pos);
+extern dtype_t       par_get_type(const parser_t *this, dtype_pos pos);
 extern slice_char_t _par_get_value_by_pos(const parser_t *this, par_token_pos pos);
 extern slice_char_t _par_get_value_by_tok(const parser_t *this, lex_token_t tok);
 extern ast_node_t*   par_node_at(const parser_t *this, ast_node_pos pos);
@@ -130,7 +129,7 @@ extern lex_token_t   par_pop_token(parser_t *this);
 extern uint16_t      par_push_name(parser_t *this, lex_token_t tok);
 extern ast_node_pos  par_push_node(parser_t *this, ast_node_t node);
 extern par_text_pos  par_push_text(parser_t *this, lex_token_t tok);
-extern uint16_t      par_push_type(parser_t *this, dtype_t type);
+extern dtype_pos     par_push_type(parser_t *this, dtype_t type);
 extern ast_node_pos  par_reserve_node(parser_t *this);
 extern void          par_reverse_range(parser_t *this, ast_node_pos begin, ast_node_pos end);
 /** parser functions */
@@ -166,9 +165,10 @@ extern ast_node_pos  parse_var(parser_t *this, enum lex_type to_match);
 	__ret__;                                                              })
 #pragma endregion
 
-#pragma region AST_TYPE PRINTING
+#pragma region AST_TYPE / DTYPE PRINTING
 /** declarations */
-extern const char*   ast_get_type_str(ast_node_t node);
+extern const char* ast_get_type_str(ast_node_t node);
+extern const char* dtype_get_type_str(enum dtype type);
 
 #ifdef PARSER_IMPLEMENT
 
@@ -226,6 +226,24 @@ fix_ast_sym_arr (void)
 const char*
 ast_get_type_str (ast_node_t node)
 { return ast_symbol_arr[node.type]; }
+
+const char*
+dtype_get_type_str (enum dtype type)
+{
+	switch (type) {
+	break; case DTYPE_INT : return "int";
+	break; case DTYPE_BYTE: return "byte";
+	break; case DTYPE_INT  | DTYPE_ARRAY: return "int-array";
+	break; case DTYPE_BYTE | DTYPE_ARRAY: return "byte-array";
+	break; case DTYPE_INT  | DTYPE_VAR_ARRAY: return "int-var-array";
+	break; case DTYPE_BYTE | DTYPE_VAR_ARRAY: return "byte-var-array";
+	break; case DTYPE_FUNC: return "procedure";
+	break; case DTYPE_FUNC | DTYPE_INT : return "int-func";
+	break; case DTYPE_FUNC | DTYPE_BYTE: return "byte-func";
+	break; case DTYPE_LOOP: return "loop";
+	break; default: _assert(false, "Invalid dtype");
+	}
+}
 
 #endif
 #pragma endregion
@@ -397,12 +415,16 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 		assert(type.type & DTYPE_ARRAY);
 		if (type.type & DTYPE_INT) log_plain("int ");
 		else                       log_plain("byte ");
-		if (type.type & DTYPE_VAR) log_plain("var-array ");
-		else                       log_plain("array ");
+		if (type.type & DTYPE_VAR_ARRAY) log_plain("var-array ");
+		else                             log_plain("array ");
 		log_plain("%.*s", _NAME_);
-		for (; type.next; type = par_get_type(this, type.next))
-			if (type.dim) log_plain("[%u]", type.dim);
-			else          log_plain("[]");
+		for (dtype_pos i = node.var_data.array;
+				POS_DIFF(node.var_data.array, i) < type.length;
+				i = POS_ADV(i, 1))
+			if (par_get_type(this, i).array_length)
+				log_plain("[%u]", par_get_type(this, i).array_length);
+			else
+				log_plain("[]");
 		log("");
 	/* expressions */
 	break; case AST_FUNC_CALL:
@@ -434,10 +456,6 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 		}
 		log("");
 	/* blocks */
-	break; case AST_BLOCK_SIMPLE:
-		log_plain("[");
-		par_full_print(f, this, it.pos, PAR_INLINE);
-		log("]");
 	break; case AST_BLOCK: case AST_INDENT:
 		log("begin");
 		for (; ast_is_child(it); it = ast_next_child(it))
@@ -512,7 +530,7 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 	       case AST_DECL_PROC ... AST_DECL_BYTE:
 		log_plain("%s %.*s ", _TYPE_, _NAME_);
 		assert(ast_is_child(it));
-		for (; POS_CMP(POS_ADV(pos, node.def_data.body_offset), it.pos);
+		for (; POS_CMP(POS_ADV(pos, node.decl_data.body_offset), it.pos);
 				it = ast_next_child(it)){
 			par_full_print(f, this, it.pos, PAR_INLINE);
 		}
@@ -576,6 +594,7 @@ parser_create(const lexer_t lex)
 	arr_push(ret.tokens, (lex_token_t){});
 	arr_push(ret.nodes, (ast_node_t){});
 	arr_push(ret.text, '\0');
+	arr_push(ret.types, (dtype_t){});
 	arr_push(ret.indents, (indent_info_t){0});
 	return ret;
 }
@@ -586,9 +605,9 @@ parser_destroy (parser_t *this)
 	arr_free(this->tokens);
 	arr_free(this->nodes);
 	arr_free(this->text);
+	arr_free(this->types);
 	arr_free(this->indents);
 	hm_free(this->names);
-	hm_free(this->types);
 }
 
 inline ast_node_pos
@@ -655,17 +674,18 @@ par_get_token (const parser_t *this, par_token_pos pos)
 }
 
 inline dtype_t
-par_get_type (const parser_t *this, uint16_t id)
+par_get_type (const parser_t *this, dtype_pos pos)
 {
-	for (size_t i=0; i<arr_ucap(this->types); ++i)
-		if (this->types[i].value == id) return this->types[i].key;
-	_assert(false, "Type ID %u not found", id);
+	_assert(0 <= pos.pos && pos.pos < arr_ulen(this->types),
+			"Type index %u out of bounds [0, %lu]",
+			pos.pos, arr_ulen(this->types));
+	return this->types[pos.pos];
 }
 
 ast_node_t*
 par_node_at (const parser_t *this, ast_node_pos pos)
 {
-	_assert(0 <= pos.pos && pos.pos < arr_ulen(this),
+	_assert(0 <= pos.pos && pos.pos < arr_ulen(this->nodes),
 			"Invalid node at(): %u >= %lu",
 			pos.pos, arr_ulen(this->nodes));
 	return this->nodes + pos.pos;
@@ -737,15 +757,11 @@ par_push_text (parser_t *this, lex_token_t tok)
 	return ret;
 }
 
-uint16_t
+dtype_pos
 par_push_type (parser_t *this, dtype_t type)
 {
-	uint16_t id;
-	if ((id = hm_get(this->types, type)) == 0) {
-		id = hm_ulen(this->types) + 1;
-		hm_put(this->types, type, id);
-	}
-	return id;
+	arr_push(this->types, type);
+	return (dtype_pos){ arr_ulen(this->types) - 1 };
 }
 
 inline ast_node_pos
@@ -880,7 +896,7 @@ parse_block (parser_t *this, lex_token_t guide)
 	}
 	/* single stmt block */
 	node = par_emplace_node(this,
-		.type = AST_BLOCK_SIMPLE,
+		.type = AST_BLOCK,
 		.src = par_peek_token(this).pos,
 	);
 	node_at(this, node).length +=
@@ -977,7 +993,7 @@ parse_decl (parser_t *this, enum lex_type to_match)
 	}
 
 	if (to_match == DANA_KW_DEF) {
-		node_at(this, node).def_data.body_offset = node_at(this, node).length;
+		node_at(this, node).decl_data.body_offset = node_at(this, node).length;
 		tmp = try(parse_local_defs(this),
 				PAR_FSTR "while parsing local defs for %.*s",
 				PAR_FPOS(this, node),
@@ -1313,7 +1329,7 @@ parse_var (parser_t *this, enum lex_type to_match)
 						PAR_FSTR "Only first dimension can be variable",
 						PAR_FPOS(this, tok));
 				// printf("\t\tVar-array\n");
-				arr_type |= DTYPE_VAR;
+				arr_type |= DTYPE_VAR_ARRAY;
 				arr_push(dimen, 0);
 				break;
 			case DANA_NUMBER:
@@ -1330,16 +1346,19 @@ parse_var (parser_t *this, enum lex_type to_match)
 		}
 
 		template.var_data.array = par_push_type(this, (dtype_t){
-			.type = arr_type & (~DTYPE_ARRAY) & (~DTYPE_VAR)
+			.type = arr_type,
+			.length = arr_ulen(dimen),
+			.array_length = dimen[0],
 		});
-		for (; !arr_empty(dimen); arr_pop(dimen)) {
-			template.var_data.array = par_push_type(this, (dtype_t){
-				.type = arr_ulen(dimen) == 1
-					? arr_type : arr_type & (~DTYPE_VAR),
-				.dim = arr_back(dimen),
-				.next = template.var_data.array,
+		// for (size_t i = 0; i < arr_ulen(dimen); ++i)
+		// 	dbg(dimen[i], "%d");
+		arr_type = (arr_type & ~DTYPE_VAR_ARRAY) | DTYPE_ARRAY;
+		for (uint16_t i = 1; i < arr_ulen(dimen); ++i)
+			par_push_type(this, (dtype_t){
+				.type = arr_type,
+				.length = arr_ulen(dimen) - i,
+				.array_length = dimen[i],
 			});
-		}
 	}
 
 	for (uint32_t i=0; i<arr_ulen(names); ++i) {
