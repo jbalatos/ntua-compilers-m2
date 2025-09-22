@@ -153,7 +153,7 @@ int main (int argc, char *argv[argc])
 	printf("\n=== CODEGEN ===\n");
 	cgen_t CGEN_CLEANUP cgen;
 	cgen_create(&cgen);
-	cgen_generate_code(&cgen, &parser, root);
+	cgen_generate_code(&cgen, &parser, root);*/
 
 	return 0;
 }

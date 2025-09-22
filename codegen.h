@@ -36,15 +36,15 @@ typedef cg_scope_t *cg_table_t;
 
 #pragma region DEBUGGING
 #ifdef CGEN_DEBUG
-	#define log(fmt,...) \
+	#define log_c(fmt,...) \
 		printf("CGEN: " fmt "\n" __VA_OPT__(,) __VA_ARGS__)
 #else
-	#define log(...)
+	#define log_c(...)
 #endif
 #pragma endregion
 
 #pragma region SYMBOL TABLE DECLARATIONS
-#define ST_CLEANUP __attribute__((cleanup(cg_table_destroy)))
+#define CG_CLEANUP __attribute__((cleanup(cg_table_destroy)))
 extern cg_table_t cg_table_create(void);
 extern void        cg_table_destroy(cg_table_t *this);
 #define cg_emplace_symbol(this, name, decl...) \
@@ -52,7 +52,7 @@ extern void        cg_table_destroy(cg_table_t *this);
 extern cgen_var_t cg_get_symbol(const cg_table_t *this, uint16_t name);
 extern void        cg_pop_scope(cg_table_t *this);
 extern void        cg_push_scope(cg_table_t *this);
-extern bool        cg_put_symbol(cg_table_t *this, uint16_t name, cgen_var_t type);
+extern bool        cg_put_symbol(cg_table_t *this, uint16_t name, cgen_var_t info);
 extern bool        cg_scope_has(const cg_table_t *this, uint16_t name);
 #pragma endregion
 
@@ -66,7 +66,7 @@ extern void cgen_create(cgen_t *cgen);
 extern void cgen_destroy(cgen_t *cgen);
 
 extern void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos);
-extern LLVMValueRef _cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos);
+extern LLVMValueRef _cgen_generate_code(cgen_t *cgen, const parser_t *parser, cg_table_t *cg_st, ast_node_pos pos);
 
 extern void cgen_verify_module(cgen_t *cgen);
 
@@ -113,10 +113,10 @@ cg_push_scope (cg_table_t *this)
 }
 
 inline bool
-cg_put_symbol (cg_table_t *this, uint16_t name, cgen_var_t type)
+cg_put_symbol (cg_table_t *this, uint16_t name, cgen_var_t info)
 {
 	if (cg_scope_has(this, name)) return true;
-	hm_put(stack_top(*this), name, type);
+	hm_put(stack_top(*this), name, info);
 	return false;
 }
 
@@ -156,15 +156,16 @@ void cgen_destroy(cgen_t *cgen) {
 }
 
 void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos) {
-    log("BEGIN CODEGEN");
+    log_c("BEGIN CODEGEN");
 
     LLVMTypeRef main_type = LLVMFunctionType(cgen->i32, NULL, 0, false);
     Unused LLVMValueRef main_func = LLVMAddFunction(cgen->Module, "main", main_type);
     LLVMBasicBlockRef BB = LLVMAppendBasicBlockInContext(cgen->Context, main_func, "entry");
     LLVMPositionBuilderAtEnd(cgen->IRBuilder, BB);
 
+    cg_table_t CG_CLEANUP cg_st = cg_table_create();
 
-    _cgen_generate_code(cgen, parser, pos);
+    _cgen_generate_code(cgen, parser, &cg_st, pos);
 
     LLVMBuildRet(cgen->IRBuilder, c32(0));
 
@@ -177,21 +178,21 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos) 
         LLVMDisposeMessage(error);
     }
 
-    log("END CODEGEN");
+    log_c("END CODEGEN");
 }
 
-LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *parser, Unused ast_node_pos pos){
-    log("Generating code...");
+LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *parser, Unused cg_table_t *cg_st, Unused ast_node_pos pos){
+    log_c("Generating code...");
 
-    #define CHECK_CHLD() for (; ast_is_child(it); it = ast_next_child(it)) \
-	try(_sem_check(this, st, it.pos), PAR_FSTR, PAR_FPOS(this, node))
+    #define GENERATE_CHLD() for (; ast_is_child(it); it = ast_next_child(it)) \
+	try(_cgen_generate_code(this, st, it.pos), PAR_FSTR, PAR_FPOS(this, node))
 
 	ast_node_t node = node_at(parser, pos);
 	ast_node_it it = ast_get_child(parser, pos);
 	dtype_t lhs, rhs;
 	enum dtype type;
 
-	log("checking %s at " PAR_FSTR,
+	log_c("checking %s at " PAR_FSTR,
 			ast_get_type_str(node), PAR_FPOS(parser, node));
 	switch (node.type) {
     /*literals*/
@@ -205,12 +206,49 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         return c8(node.pl_data.ch);
     break; case AST_STRING:
         return LLVMBuildGlobalStringPtr(cgen->IRBuilder, par_get_text(parser, node.pl_data.str), "str");
-    break; case AST_NAME:
+    break; case AST_NAME: 
+        return cg_get_symbol(cg_st, node.name).alloca;
     /*variables*/
     break; case AST_INT:
+        {
+            LLVMTypeRef var_type = cgen->i32;
+            LLVMValueRef alloca = LLVMBuildAlloca(cgen->IRBuilder, var_type, par_get_name(parser, node).ptr);
+            throw_if(cg_put_symbol(cg_st, node.name, (cgen_var_t){ .type = var_type, .alloca = alloca }), LLVMValueRef,
+                PAR_FSTR "variable name %.*s already used in current scope",
+                PAR_FPOS(parser, node),
+                UNSLICE(par_get_name(parser, node)));
+            return alloca;
+        }
     break; case AST_BYTE:
+        {
+            LLVMTypeRef var_type = cgen->i8;
+            LLVMValueRef alloca = LLVMBuildAlloca(cgen->IRBuilder, var_type, par_get_name(parser, node).ptr);
+            throw_if(cg_put_symbol(cg_st, node.name, (cgen_var_t){ .type = var_type, .alloca = alloca }), LLVMValueRef,
+                PAR_FSTR "variable name %.*s already used in current scope",
+                PAR_FPOS(parser, node),
+                UNSLICE(par_get_name(parser, node)));
+            return alloca;
+        }
     break; case AST_REF_INT:
+        {
+            LLVMTypeRef var_type = LLVMPointerType(cgen->i32, 0);
+            LLVMValueRef alloca = NULL;
+            throw_if(cg_put_symbol(cg_st, node.name, (cgen_var_t){ .type = var_type, .alloca = alloca }), LLVMValueRef,
+                PAR_FSTR "variable name %.*s already used in current scope",
+                PAR_FPOS(parser, node),
+                UNSLICE(par_get_name(parser, node)));
+            return alloca;
+        }
     break; case AST_REF_BYTE:
+        {
+            LLVMTypeRef var_type = LLVMPointerType(cgen->i8, 0);
+            LLVMValueRef alloca = NULL;
+            throw_if(cg_put_symbol(cg_st, node.name, (cgen_var_t){ .type = var_type, .alloca = alloca }), LLVMValueRef,
+                PAR_FSTR "variable name %.*s already used in current scope",
+                PAR_FPOS(parser, node),
+                UNSLICE(par_get_name(parser, node)));
+            return alloca;
+        }
     break; case AST_ARRAY:
     /*expressions*/
     break; case AST_PLUS ... AST_CMP_GEQ:
