@@ -6,9 +6,7 @@
 	#define ADDR_OF(x) ((typeof(x)[1]){(x)})
 #endif
 
-typedef struct {
-	void *next;
-} stack_node;
+typedef struct { void *next; } stack_node;
 
 #define stack_node_header(ptr) ((stack_node*)ptr - 1)
 
@@ -24,7 +22,7 @@ typedef struct {
 	free(__tmp__);                                       }))
 
 #define stack_next(s) ((typeof(s))(stack_node_header(s)->next))
-#define stack_free(s) ({ while (!stack_empty(s)) stack_pop(s); })
+#define stack_free(s) do { while (!stack_empty(s)) stack_pop(s); } while (0)
 
 extern void * stack_push_int(void*, void*, size_t);
 

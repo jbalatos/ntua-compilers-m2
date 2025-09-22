@@ -100,15 +100,11 @@ int main (int argc, char *argv[argc])
 							)),
 					parser.nodes[i].name,
 					parser.nodes[i].length);
-			dtype_t it = par_get_type(&parser, parser.nodes[i].var_data.array);
-			printf("\t->\t%s", it.type & DTYPE_BYTE ? "byte" : "int");
-			for (dtype_pos j = parser.nodes[i].var_data.array;
-					POS_DIFF(parser.nodes[i].var_data.array, j) < it.length;
-					j = POS_ADV(j, 1))
-				if ((arr_len = par_get_type(&parser, j).array_length))
-					printf("[%u]", arr_len);
-				else
-					printf("[]");
+			dtype_t type = par_get_type(&parser, parser.nodes[i].var_data.array);
+			printf("\t->\t%s", type.type & DTYPE_BYTE ? "byte" : "int");
+			for (dtype_t *arr = &type; arr->type & DTYPE_ARRAY; ++arr)
+				if (arr->type & DTYPE_VAR_ARRAY) printf("[]");
+				else printf("[%u]", arr->array_length);
 			printf("\n");
 			break;
 		default:
@@ -129,11 +125,21 @@ int main (int argc, char *argv[argc])
 	printf("\n");
 
 	printf("\n=== NAME TABLE ===\n");
-	for (size_t i=0; i<arr_ucap(parser.names); ++i) {
-		hm_cell_t it = arr_header(parser.names)->hash_table[i];
-		if (it.hash == 0) continue;
-		printf("%4u\t%.*s\n", parser.names[it.index].value,
-				UNSLICE(parser.names[it.index].decl));
+	for (size_t i=0; i<arr_ulen(parser.names); ++i) {
+		printf("%4u\t%.*s\n", parser.names[i].value,
+				UNSLICE(parser.names[i].decl));
+	}
+	printf("\n");
+
+	printf("\n=== DATA TYPE TABLE ===\n");
+	for (size_t i=1; i<arr_ulen(parser.types); ++i) {
+		printf("%4lu :\t%15s, %u", i,
+				dtype_get_type_str(parser.types[i].type),
+				parser.types[i].length);
+		if (parser.types[i].type & DTYPE_ARRAY)
+			printf(" [%u]\n", parser.types[i].array_length);
+		else
+			printf("\n");
 	}
 	printf("\n");
 

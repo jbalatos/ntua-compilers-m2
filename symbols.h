@@ -40,7 +40,7 @@
 	KW	(NOT,		BOOL_NOT,	"not")			\
 	KW_LEX	(AS,				"as")			\
 	KW	(BEGIN,		BLOCK,		"begin")/* blocks */	\
-	KW	(END,		BLOCK_SIMPLE,	"end")			\
+	KW_LEX	(END,				"end")			\
 	KW	(IF,		COND,		"if")			\
 	KW_LEX	(ELIF,				"elif")			\
 	KW_LEX	(ELSE,				"else")			\
