@@ -17,7 +17,7 @@
 	OP	(GT,		CMP_GT,		">")			\
 	OP	(GEQ,		CMP_GEQ,	">=")			\
 	OP	(OPEN_PAREN,	FUNC_CALL,	"(")	/* dividers */	\
-	OP	(CLOSE_PAREN,	ARGS,		")")			\
+	OP_LEX	(CLOSE_PAREN,			")")			\
 	OP	(OPEN_BRACKET,	ARRAY_AT,	"[")			\
 	OP	(CLOSE_BRACKET,	ARRAY,		"]")			\
 	TK_LEX	(COMMA,				",")			\
@@ -31,7 +31,6 @@
 	LT	(STRING,	STRING,		"string")		\
 	LT_PAR	(		REF_INT,	"int ref")		\
 	LT_PAR	(		REF_BYTE,	"byte ref")		\
-	LT_PAR	(		LOCAL_DEF,	"local defs")		\
 	LT_LEX	(EOF,				"EOF")			\
 
 #define DANA_KEYWORDS \
@@ -51,7 +50,7 @@
 	KW	(BREAK,		BREAK,		"break")		\
 	KW	(CONT,		CONT,		"continue")		\
 	KW	(RETURN,	RETURN,		"return")		\
-	KW	(VAR,		VARS,		"var")	/* vars */	\
+	KW_LEX	(VAR,				"var")	/* vars */	\
 	KW_LEX	(REF,				"ref")			\
 	KW	(INT,		INT,		"int")			\
 	KW	(BYTE,		BYTE,		"byte")			\

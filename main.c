@@ -72,7 +72,7 @@ int main (int argc, char *argv[argc])
 		case AST_LOOP:
 		case AST_INT ... AST_BYTE:
 		case AST_REF_INT ... AST_REF_BYTE:
-		case AST_DEF_PROC ... AST_DEF_BYTE:
+		case AST_DECL_PROC ... AST_DECL_BYTE:
 			printf("%3lu :\t %10s\t%8.*s (%u)\t(%u)\n", i,
 					ast_get_type_str(parser.nodes[i]),
 					UNSLICE(par_get_name(
@@ -80,6 +80,17 @@ int main (int argc, char *argv[argc])
 							)),
 					parser.nodes[i].name,
 					parser.nodes[i].length);
+			break;
+		case AST_DEF_PROC ... AST_DEF_BYTE:
+			printf("%3lu :\t %10s\t%8.*s (%u)\t(%u) (locals at +%u, body at +%u)\n", i,
+					ast_get_type_str(parser.nodes[i]),
+					UNSLICE(par_get_name(
+							&parser, parser.nodes[i]
+							)),
+					parser.nodes[i].name,
+					parser.nodes[i].length,
+					parser.nodes[i].def_data.local_off,
+					parser.nodes[i].def_data.body_off);
 			break;
 		case AST_ARRAY:
 			printf("%3lu :\t %10s\t%8.*s (%u)\t(%u)\n", i,
