@@ -79,5 +79,12 @@ void slice_temp_cleanup (slice_temp_t *this) { *this->ptr = this->backup; }
 					sizeof(typeof(expr))))                 \
 			throw_full(false, typeof(expr), fmt);                  \
 		__val__;                                                      })
+
+#define try_typed(expr, typevar, fmt...) ({ /* assumes ZII == ERROR */         \
+		typeof(expr) __val__ = (expr);                                 \
+		if (!memcmp(&__val__, (typeof(expr)[1]){0},                    \
+					sizeof(typeof(expr))))                 \
+			throw_full(false, typeof(typevar), fmt);               \
+		__val__;                                                      })
 #pragma endregion
 

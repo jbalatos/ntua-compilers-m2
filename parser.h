@@ -45,7 +45,9 @@ typedef struct {
 			uint16_t name;
 			char ch;
 		} pl_data;
-		struct { uint16_t body_offset; } decl_data;
+		struct {
+			uint16_t body_off;
+		} decl_data;
 		struct { dtype_pos array; } var_data;
 	};
 } ast_node_t;
@@ -140,7 +142,7 @@ extern ast_node_pos  parse_expr(parser_t *this, uint8_t thrs);
 extern ast_node_pos  parse_local_defs(parser_t *this);
 extern ast_node_pos  parse_lvalue(parser_t *this);
 extern ast_node_pos  parse_stmt(parser_t *this);
-extern ast_node_pos  parse_var(parser_t *this, enum lex_type to_match);
+extern uint32_t      parse_var(parser_t *this, enum lex_type to_match);
 /** utility macros */
 #define node_at(p, pos) (*par_node_at(p, pos))
 #define PAR_FSTR            "%u:%u:\t"
@@ -528,13 +530,13 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 	/* function declarations / definitions */
 	break; case AST_DEF_PROC ... AST_DEF_BYTE:
 	       case AST_DECL_PROC ... AST_DECL_BYTE:
-		log_plain("%s %.*s ", _TYPE_, _NAME_);
-		assert(ast_is_child(it));
-		for (; POS_CMP(POS_ADV(pos, node.decl_data.body_offset), it.pos);
+		log_plain("%s %.*s(", _TYPE_, _NAME_);
+		for (; POS_CMP(POS_ADV(pos, node.decl_data.body_off), it.pos);
 				it = ast_next_child(it)){
+			if (POS_DIFF(pos, it.pos) > 1) log_plain(", ");
 			par_full_print(f, this, it.pos, PAR_INLINE);
 		}
-		log("");
+		log(")");
 		if (AST_DECL_PROC <= node.type && node.type <= AST_DECL_BYTE)
 			break;
 		{
@@ -980,20 +982,16 @@ parse_decl (parser_t *this, enum lex_type to_match)
 		do {
 			tok = par_pop_token(this);
 			// dbg(lex_get_type_str(par_peek_token(this)), "%s");
-			tmp = try(parse_var(this, DANA_KW_AS),
+			node_at(this, node).length += try_typed(parse_var(this, DANA_KW_AS), ast_node_pos,
 					PAR_FSTR "while parsing function declaration arguments for %.*s",
 					PAR_FPOS(this, node),
 					UNSLICE(par_get_name(this, node_at(this, node)))
 				 );
-			node_at(this, node).length += node_at(this, tmp).length;
 		} while (par_peek_token(this).type == DANA_COMMA);
-	} else {
-		node_at(this, node).length += 1;
-		par_emplace_node(this, .type = AST_VARS);
 	}
 
 	if (to_match == DANA_KW_DEF) {
-		node_at(this, node).decl_data.body_offset = node_at(this, node).length;
+		node_at(this, node).decl_data.body_off = node_at(this, node).length;
 		tmp = try(parse_local_defs(this),
 				PAR_FSTR "while parsing local defs for %.*s",
 				PAR_FPOS(this, node),
@@ -1132,8 +1130,10 @@ parse_local_defs (parser_t *this)
 			continue;
 		case DANA_KW_VAR:
 			par_pop_token(this);
-			tmp = try(parse_var(this, DANA_KW_IS), PAR_FSTR, PAR_FPOS(this, tok));
-			node_at(this, node).length += node_at(this, tmp).length;
+			node_at(this, node).length += try_typed(
+					parse_var(this, DANA_KW_IS),
+					ast_node_pos,
+					PAR_FSTR, PAR_FPOS(this, tok));
 			continue;
 		default:;
 		}
@@ -1273,12 +1273,10 @@ parse_stmt (parser_t *this)
 	}
 }
 
-ast_node_pos
+uint32_t
 parse_var (parser_t *this, enum lex_type to_match)
 {
-	ast_node_pos node = par_emplace_node(this,
-		.type = AST_VARS, .src = par_peek_token(this).pos,
-	);
+	uint32_t ret = 0;
 	ast_node_t template = { .length = 1 };
 	lex_token_t tok;
 	enum dtype arr_type;
@@ -1287,10 +1285,10 @@ parse_var (parser_t *this, enum lex_type to_match)
 
 	do {
 		arr_push(pos, par_peek_token(this).pos);
-		tok = par_pop_require(this, DANA_NAME, ast_node_pos);
+		tok = par_pop_require(this, DANA_NAME, uint32_t);
 		arr_push(names, par_push_name(this, tok));
 	} while (par_peek_token(this).type == DANA_NAME);
-	par_pop_require(this, to_match, ast_node_pos);
+	par_pop_require(this, to_match, uint32_t);
 	/* base types */
 	switch ((tok = par_pop_token(this)).type) {
 	case DANA_KW_REF:
@@ -1325,7 +1323,7 @@ parse_var (parser_t *this, enum lex_type to_match)
 			switch ((tok = par_pop_token(this)).type) {
 			case DANA_CLOSE_BRACKET:
 				throw_if(!arr_empty(dimen),
-						ast_node_pos,
+						uint32_t,
 						PAR_FSTR "Only first dimension can be variable",
 						PAR_FPOS(this, tok));
 				// printf("\t\tVar-array\n");
@@ -1339,7 +1337,7 @@ parse_var (parser_t *this, enum lex_type to_match)
 					arr_push(dimen, atoi(sl.ptr));
 				}
 				// dbg(arr_back(dimen), "%u");
-				par_pop_require(this, DANA_CLOSE_BRACKET, ast_node_pos);
+				par_pop_require(this, DANA_CLOSE_BRACKET, uint32_t);
 				break;
 			default: _assert(false, "Invalid arr-def subscript type");
 			}
@@ -1364,12 +1362,11 @@ parse_var (parser_t *this, enum lex_type to_match)
 	for (uint32_t i=0; i<arr_ulen(names); ++i) {
 		template.name = names[i];
 		template.src = pos[i];
-		node_at(this, node).length += node_at(this,
-				par_push_node(this, template)).length;
+		ret += node_at(this, par_push_node(this, template)).length;
 	}
 
 	hm_free(names), hm_free(dimen), hm_free(pos);
-	return node;
+	return ret;
 }
 #pragma endregion
 #endif
