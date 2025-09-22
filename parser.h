@@ -1330,7 +1330,7 @@ parse_var (parser_t *this, enum lex_type to_match)
 		}
 		break;
 	case DANA_KW_INT ... DANA_KW_BYTE:
-		template.type = (enum ast_type)tok.type;
+		template.type = (enum ast_type)tok.type; //AST_INT or AST_BYTE
 		break;
 	default: _assert(false, "Invalid var type");
 	}
