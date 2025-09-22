@@ -7,10 +7,6 @@
 #define PARSER_IMPLEMENT
 #include "parser.h"
 
-#define SEM_IMPLEMENT
-#define SEM_DEBUG
-#include "semantic.h"
-
 //#define CGEN_IMPLEMENT
 //#include "codegen.h"
 
@@ -50,6 +46,7 @@ int main (int argc, char *argv[argc])
 	if (!POS_OK(root)) return 1;
 
 	printf("\n=== AST ARRAY ===\n");	
+	uint16_t arr_len;
 	for (size_t i=0; i<arr_ulen(parser.nodes); ++i)
 		switch (parser.nodes[i].type){
 		case AST_TRUE ... AST_FALSE:
@@ -94,9 +91,13 @@ int main (int argc, char *argv[argc])
 					parser.nodes[i].length);
 			dtype_t it = par_get_type(&parser, parser.nodes[i].var_data.array);
 			printf("\t->\t%s", it.type & DTYPE_BYTE ? "byte" : "int");
-			for (; it.next; it = par_get_type(&parser, it.next))
-				if (it.type & DTYPE_VAR) printf("[]");
-				else printf("[%u]", it.dim);
+			for (dtype_pos j = parser.nodes[i].var_data.array;
+					POS_DIFF(parser.nodes[i].var_data.array, j) < it.length;
+					j = POS_ADV(j, 1))
+				if ((arr_len = par_get_type(&parser, j).array_length))
+					printf("[%u]", arr_len);
+				else
+					printf("[]");
 			printf("\n");
 			break;
 		default:
@@ -124,9 +125,6 @@ int main (int argc, char *argv[argc])
 				UNSLICE(parser.names[it.index].decl));
 	}
 	printf("\n");
-
-	printf("\n=== SEMANTICS ===\n");
-	if (!sem_check(&parser, root)) return 2;
 
 	/*printf("\n=== CODEGEN ===\n");
 	cgen_t CGEN_CLEANUP cgen;
