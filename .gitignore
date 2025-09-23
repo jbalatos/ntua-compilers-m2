@@ -1,7 +1,9 @@
 *.d
 *.o
+*.ll
 main
 *.dana
+test.c
 
 .exrc
 tags
