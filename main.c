@@ -7,11 +7,14 @@
 #define PARSER_IMPLEMENT
 #include "parser.h"
 
+#define SEM_IMPLEMENT
+#define SEM_DEBUG
+#include "semantic.h"
+
 //#define CGEN_IMPLEMENT
 //#include "codegen.h"
 
 const char fname[] = "etc/sample.dana";
-#define LENGTH(x) (sizeof(x)/sizeof(x[0]))
 
 int main (int argc, char *argv[argc])
 {
@@ -46,7 +49,6 @@ int main (int argc, char *argv[argc])
 	if (!POS_OK(root)) return 1;
 
 	printf("\n=== AST ARRAY ===\n");	
-	uint16_t arr_len;
 	for (size_t i=0; i<arr_ulen(parser.nodes); ++i)
 		switch (parser.nodes[i].type){
 		case AST_TRUE ... AST_FALSE:
@@ -141,6 +143,11 @@ int main (int argc, char *argv[argc])
 		else
 			printf("\n");
 	}
+	printf("\n");
+
+	printf("\n=== SEMANTICS ===\n");
+	if (!sem_check(&parser, root)) printf("SEM ERROR!\n");
+	else printf("SEM OK!\n");
 	printf("\n");
 
 	/*printf("\n=== CODEGEN ===\n");

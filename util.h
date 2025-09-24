@@ -6,6 +6,8 @@
 #	define typeof __typeof__
 #endif
 
+#define LENGTH(x) (sizeof(x)/sizeof(x[0]))
+
 #pragma region DEBUGGING
 #define dbg(x, fmt) \
 	printf("DBG:\t%s:%d\t" #x ":\t" fmt "\n", __FILE__, __LINE__, x)

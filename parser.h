@@ -70,11 +70,13 @@ typedef struct {
 		DTYPE_NONE      = 0,
 		DTYPE_INT       = 1 << 0,
 		DTYPE_BYTE      = 1 << 1,
-		DTYPE_ARRAY     = 1 << 2,
-		DTYPE_FUNC      = 1 << 3,
-		DTYPE_VAR_ARRAY = DTYPE_ARRAY | DTYPE_FUNC,
+		DTYPE_BOOL      = 1 << 2,
+		DTYPE_ARRAY     = 1 << 3,
+		DTYPE_FUNC      = 1 << 4,
+		DTYPE_VAR       = DTYPE_FUNC,
+		DTYPE_VAR_ARRAY = DTYPE_ARRAY | DTYPE_VAR,
 		DTYPE_LOOP      = DTYPE_INT | DTYPE_BYTE,
-		DTYPE_ANY       = (1 << 4) - 1,
+		DTYPE_ANY       = (1 << 5) - 1,
 	} __attribute__((flag_enum, packed)) type;
 	uint16_t length;
 	uint16_t array_length;
@@ -88,7 +90,7 @@ typedef struct {
 	dtype_t     *types;  /* dynamic array of types */
 	struct name_record {
 		size_t key; uint16_t value;
-		slice_char_t decl; /* first declaration of name, dbg only */
+		slice_char_t decl; /* first declaration of name */
 	} *names;            /* hash map matching name => id */
 	indent_info_t *indents;
 	par_token_pos top;    /* index to current token */
@@ -272,11 +274,11 @@ ast_get_child (const parser_t *parser, ast_node_pos parent)
 	};
 }
 
-inline bool
+inline bool __attribute__((const))
 ast_is_child (ast_node_it it)
 { return POS_CMP(it.end, it.pos) > 0; }
 
-inline ast_node_it
+inline ast_node_it __attribute__((const))
 ast_next_child (ast_node_it it)
 {
 	_assert(it.pos.pos < arr_ulen(it.parser->nodes),
@@ -1072,6 +1074,7 @@ parse_expr (parser_t *this, uint8_t thrs)
 				uint16_t id = node_at(this, node).name;
 
 				arr_pop(this->nodes); /* remove node */
+				// node_at(this, node) = (ast_node_t){
 				node = par_emplace_node(this,
 					.type = AST_FUNC_CALL,
 					.src = tok.pos,
@@ -1179,6 +1182,11 @@ parse_lvalue (parser_t *this)
 				PAR_FPOS(this, node)
 			);
 		node_at(this, node).type = AST_ARRAY_AT;
+		tmp = par_emplace_node(this,
+				.type = AST_NAME,
+				.name = node_at(this, node).name
+				);
+		node_at(this, node).length += node_at(this, tmp).length;
 
 		while ((tok = par_peek_token(this)).type == DANA_OPEN_BRACKET) {
 			par_pop_token(this);
