@@ -8,6 +8,7 @@
 #include "parser.h"
 
 #define CGEN_IMPLEMENT
+#define CGEN_DEBUG
 #include "codegen.h"
 
 const char fname[] = "etc/sample.dana";
@@ -139,8 +140,10 @@ int main (int argc, char *argv[argc])
 
 	printf("\n=== CODEGEN ===\n");
 	cgen_t CGEN_CLEANUP cgen;
+	printf("Trying to generate code...\n");
 	cgen_create(&cgen);
-	cgen_generate_code(&cgen, &parser, root);*/
+	printf("creation done\n");
+	cgen_generate_code(&cgen, &parser, root);
 
 	return 0;
 }

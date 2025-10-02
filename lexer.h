@@ -15,7 +15,13 @@
 
 #pragma region TYPES
 
+#ifndef SLICE_CHAR_T_DEFINED
+#define SLICE_CHAR_T_DEFINED
+
 typedef slice(char) slice_char_t;
+
+#endif
+
 POS_DECL(lex_buf_pos, 24);
 
 typedef struct {

@@ -1330,6 +1330,9 @@ parse_var (parser_t *this, enum lex_type to_match)
 			par_pop_token(this);
 			switch ((tok = par_pop_token(this)).type) {
 			case DANA_CLOSE_BRACKET:
+				throw_if(to_match != DANA_KW_AS, ret_size,
+						PAR_FSTR "Variable-length arrays only allowed in var-def",
+						PAR_FPOS(this, tok));
 				throw_if(!arr_empty(dimen),
 						ret_size,
 						PAR_FSTR "Only first dimension can be variable",
