@@ -105,7 +105,7 @@
 	IFUNC(readInteger)		/* input */	\
 	BFUNC(readByte)					\
 	BFUNC(readChar)					\
-	PROC(readString,	INT,		STRING)	\
+	PROC(readString,	INT,	STRING)		\
 	IFUNC(extend,		BYTE)	/* casting */	\
 	BFUNC(shrink,		INT)			\
 	IFUNC(strlen,		STRING)	/* strings */	\

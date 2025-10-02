@@ -100,9 +100,6 @@ static const char* st_lib_names[] = { DANA_LIBRARY };
 #undef IFUNC
 #undef BFUNC
 
-#define DTYPE_ARGC_(_1, _2, _3...) _3
-#define DTYPE_ARGC(...) DTYPE_ARGC_(__VA_ARGS__ __VA_OPT__(,) 2, 1, 0)
-
 #define INT    DTYPE_INLINE(DTYPE_INT)
 #define BYTE   DTYPE_INLINE(DTYPE_BYTE)
 #define STRING DTYPE_INLINE(DTYPE_VAR_ARRAY | DTYPE_BYTE)
