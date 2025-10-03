@@ -1195,11 +1195,6 @@ parse_lvalue (parser_t *this)
 				PAR_FPOS(this, node)
 			);
 		node_at(this, node).type = AST_ARRAY_AT;
-		tmp = par_emplace_node(this,
-				.type = AST_NAME,
-				.name = node_at(this, node).name
-				);
-		node_at(this, node).length += node_at(this, tmp).length;
 
 		while ((tok = par_peek_token(this)).type == DANA_OPEN_BRACKET) {
 			par_pop_token(this);

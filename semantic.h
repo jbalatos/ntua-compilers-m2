@@ -343,8 +343,11 @@ _sem_check (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 				PAR_FPOS(this, node),
 				UNSLICE(par_get_name(this, node)));
 	break; case AST_ASSIGN:
-		lhs = sem_eval_expr(this, st, it.pos); it = ast_next_child(it);
-		rhs = sem_eval_expr(this, st, it.pos);
+		lhs = try_typed(sem_eval_expr(this, st, it.pos), bool,
+				PAR_FSTR, PAR_FPOS(this, node));
+		it = ast_next_child(it);
+		rhs = try_typed(sem_eval_expr(this, st, it.pos), bool,
+				PAR_FSTR, PAR_FPOS(this, node));
 		throw_if(!sem_type_eq(this, st, rhs, lhs), bool,
 				PAR_FSTR "type mismatch on assignment: %s cannot be converted to %s",
 				PAR_FPOS(this, node),
@@ -508,19 +511,31 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 		return sem_get_node_type(this, st, node);
 
 	case AST_ARRAY_AT:
-		ltype = sem_eval_expr(this, st, lhs.pos);
-		rtype = sem_eval_expr(this, st, rhs.pos);
-		throw_if((ltype.type & DTYPE_ARRAY) == 0, st_type_t,
-				PAR_FSTR "left-hand of array subscript operator is not an array",
+		throw_if(!ast_is_child(lhs), st_type_t,
+				PAR_FSTR "subscript operator must have at least 1 dimension",
 				PAR_FPOS(this, *lhs.node));
-		throw_if(!DTYPE_ISNUM(rtype), st_type_t,
-				PAR_FSTR "array index must be number",
-				PAR_FPOS(this, *rhs.node));
-		/* TODO: add subscript range checking */
-		if (!ltype.is_position || par_get_type(this, ltype.pos).length == 1)
-			return DTYPE_INLINE(DTYPE_ARR_TYPE(ltype));
-		else
-			return DTYPE_POS(this, POS_ADV(ltype.pos, 1));
+
+		st_type_t arr_type = try(st_get_symbol(st, node.name),
+				PAR_FSTR "array name '%.*s' doesn't exist in current scope",
+				PAR_FPOS(this, node),
+				UNSLICE(par_get_name(this, node)));
+
+		for (; ast_is_child(lhs); lhs = ast_next_child(lhs)) {
+			rtype = sem_eval_expr(this, st, lhs.pos);
+			throw_if((arr_type.type & DTYPE_ARRAY) == 0, st_type_t,
+					PAR_FSTR "subscript operator on non-array type",
+					PAR_FPOS(this, *lhs.node));
+			throw_if(!DTYPE_ISNUM(rtype), st_type_t,
+					PAR_FSTR "subscript index must be number",
+					PAR_FPOS(this, *lhs.node));
+			/* TODO: add subscript range checking */
+			/* move to next type */
+			arr_type = arr_type.is_position
+				? DTYPE_POS(this, POS_ADV(arr_type.pos, 1))
+				: DTYPE_INLINE(DTYPE_ARR_TYPE(arr_type));
+		}
+
+		return arr_type;
 
 	case AST_FUNC_CALL:
 		rtype = st_get_symbol(st, node.name);
