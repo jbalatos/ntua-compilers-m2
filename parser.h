@@ -266,28 +266,41 @@ extern ast_node_it ast_next_child(ast_node_it it);
 inline ast_node_it
 ast_get_child (const parser_t *parser, ast_node_pos parent)
 {
-	return (ast_node_it){
-		.parser = parser,
-		.node = parser->nodes + parent.pos + 1,
-		.pos = POS_ADV(parent, 1),
-		.end = POS_ADV(parent, node_at(parser, parent).length),
-	};
+	if (parent.pos + 1 >= arr_ulen(parser->nodes))
+		return (ast_node_it){
+			.parser = parser,
+			.node = 0, .pos = {0},
+			.end = POS_ADV(parent, node_at(parser, parent).length),
+		};
+	else
+		return (ast_node_it){
+			.parser = parser,
+			.node = parser->nodes + parent.pos + 1,
+			.pos = POS_ADV(parent, 1),
+			.end = POS_ADV(parent, node_at(parser, parent).length),
+		};
 }
 
 inline bool __attribute__((const))
 ast_is_child (ast_node_it it)
-{ return POS_CMP(it.end, it.pos) > 0; }
+{ return it.node && POS_CMP(it.end, it.pos) > 0; }
 
 inline ast_node_it __attribute__((const))
 ast_next_child (ast_node_it it)
 {
 	_assert(it.pos.pos < arr_ulen(it.parser->nodes),
 			"Iterator post array end");
-	return (ast_node_it){
-		.parser = it.parser, .end = it.end,
-		.pos = POS_ADV(it.pos, it.node->length),
-		.node = it.node + it.node->length,
-	};
+	if (!it.node || it.pos.pos + it.node->length >= it.end.pos)
+		return (ast_node_it){
+			.parser = it.parser, .end = it.end,
+			.pos = {0}, .node = 0,
+		};
+	else
+		return (ast_node_it){
+			.parser = it.parser, .end = it.end,
+			.pos = POS_ADV(it.pos, it.node->length),
+			.node = it.node + it.node->length,
+		};
 
 }
 #endif
