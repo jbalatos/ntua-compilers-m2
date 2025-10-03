@@ -28,7 +28,7 @@ typedef struct {
 	.type = par_get_type(par, p).type, .is_position = true, .pos = (p) \
 }
 #define DTYPE_INLINE(t, ...) (st_type_t){ .type = (t), __VA_OPT__(__VA_ARGS__) }
-#define DTYPE_ISNUM(t) (((t).type == DTYPE_INT) || ((t).type == DTYPE_BYTE))
+#define DTYPE_ISNUM(t) (((t).type == DTYPE_INT) || ((t).type == DTYPE_BYTE) || ((t).type == DTYPE_BOOL))
 #define DTYPE_ARR_TYPE(t) ((t).type & ~DTYPE_VAR_ARRAY)
 
 // TODO: add declaration positions
@@ -719,6 +719,9 @@ sem_type_eq (const parser_t *this, const sym_table_t *st, st_type_t a, st_type_t
 				return false;
 		return true;
 	}
+	if ((da.type == DTYPE_BYTE && db.type == DTYPE_BOOL) ||
+			(da.type == DTYPE_BYTE && db.type == DTYPE_BOOL))
+		return true;
 	return da.type == db.type;
 }
 #pragma endregion

@@ -450,8 +450,10 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 	/* expressions */
 	break; case AST_FUNC_CALL:
 		log_plain("(func-call %.*s(", _NAME_);
-		for (; ast_is_child(it); it = ast_next_child(it))
+		for (; ast_is_child(it); it = ast_next_child(it)) {
+			if (POS_DIFF(pos, it.pos) > 1) log_plain(", ");
 			par_full_print(f, this, it.pos, PAR_INLINE);
+		}
 		log("))");
 	break; case AST_PLUS ... AST_CMP_GEQ:
 	       case AST_BOOL_AND ... AST_BOOL_NOT:
@@ -865,10 +867,10 @@ parse_args (parser_t *this, enum ast_type to_match)
 	while (par_peek_token(this).type == DANA_COMMA) {
 		par_pop_token(this);
 		// dbg(node_at(this, node).length, "ARG:\tno. %u");
-		try_typed(parse_expr(this, 0), ret_size,
+		tmp = try_typed(parse_expr(this, 0), ret_size,
 				PAR_FSTR "while parsing arguments",
 				PAR_FPOS(this, src));
-		length += 1;
+		length += node_at(this, tmp).length;
 	}
 
 	return (ret_size){ .ok = 1, .v = length };
