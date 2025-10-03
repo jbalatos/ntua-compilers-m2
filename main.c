@@ -1,6 +1,10 @@
 #include <errno.h>
 #include <stdio.h>
 
+#if defined(ENABLE_SANITIZER)
+#	include <sanitizer/asan_sanitizer.h>
+#endif
+	
 #define ALLOC_IMPLEMENT
 #include "util/alloc.h"
 
@@ -152,11 +156,10 @@ int main (int argc, char *argv[argc])
 	printf("\n");
 
 	printf("\n=== CODEGEN ===\n");
-	cgen_t CGEN_CLEANUP cgen;
-	printf("Trying to generate code...\n");
-	cgen_create(&cgen);
+	cgen_t CGEN_CLEANUP cgen = cgen_create(&parser);
 	printf("creation done\n");
 	cgen_generate_code(&cgen, &parser, root);
+	printf("DONE\n");
 
 	return 0;
 }

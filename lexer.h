@@ -224,14 +224,17 @@ lex_get_file_pos (const lexer_t *this, lex_buf_pos pos)
 #ifdef LEX_IMPLEMENT
 #pragma region METHODS
 lexer_t
-lexer_create (const alloc_t *alloc, const char *fname)
+lexer_create (const __attribute__((unused)) alloc_t *alloc, const char *fname)
 {
 	lexer_t ret = { .alloc = alloc, .fname = fname };
 	FILE *fp = fopen(fname, "r");
 
 	if (fp) {
 		fseek(fp, 0, SEEK_END);
-		set_slice(ret.buffer, allocate(*alloc, char, ftell(fp) + 1));
+		ret.buffer = (slice_char_t){
+			.ptr = malloc(sizeof(char) * (ftell(fp) + 1)),
+			.length = ftell(fp) + 1,
+		};
 		ret.buffer.length -= 1;
 		rewind(fp);
 		fread(ret.buffer.ptr, 1, ret.buffer.length, fp);
@@ -252,7 +255,7 @@ lexer_create (const alloc_t *alloc, const char *fname)
 void
 lexer_destroy (const lexer_t *this)
 {
-	if (this->buffer.ptr) deallocate(*this->alloc, this->buffer);
+	free(this->buffer.ptr);
 	arr_free(this->lines);
 }
 

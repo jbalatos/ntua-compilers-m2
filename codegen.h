@@ -7,6 +7,7 @@
 #endif
 
 #include "parser.h"
+#include "symbols.h"
 #include "util.h"
 #include "util/dynamic_array.h"
 #include "util/stack.h"
@@ -49,8 +50,12 @@ typedef struct {
     LLVMModuleRef Module;
     LLVMBuilderRef IRBuilder;
     LLVMContextRef Context;
+    LLVMAttributeRef stack_align;
 
-    LLVMTypeRef i1, i8, i32, i64;
+    LLVMPassManagerRef FPM, MPM;
+    
+
+    LLVMTypeRef i1, i8, i16, i32, i64;
 
     cg_table_t cg_st;
     string_list scope;
@@ -58,8 +63,12 @@ typedef struct {
     BlockContext *block_stack;
     LoopInfo *loop_stack;
 
+    struct { uint16_t key; const char * value; } *base_lib;
+
     enum termination {NO_TERM = 0, CG_RET, CG_BREAK, CG_CONT} block_term;
     int loop_to_check;
+
+    
 
 } cgen_t;
 
@@ -91,10 +100,10 @@ extern bool        cg_scope_has(const cg_table_t *this, uint16_t name);
 #pragma region CODEGEN DECLARATIONS
 
 extern LLVMValueRef c8(char c);
-extern LLVMValueRef c32(int32_t i);
+extern LLVMValueRef c16(int16_t i);
 
 #define CGEN_CLEANUP __attribute__((cleanup(cgen_destroy)))
-extern void cgen_create(cgen_t *cgen);
+extern cgen_t cgen_create(const parser_t * parser);
 extern void cgen_destroy(cgen_t *cgen);
 
 extern void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos);
@@ -106,12 +115,13 @@ extern LLVMValueRef _cgen_get_var_value(cgen_t *cgen, const parser_t *parser, as
 extern LLVMValueRef _cgen_get_array_value(cgen_t *cgen, const parser_t *parser, ast_node_pos pos);
 extern LLVMValueRef _cgen_get_array_at_ptr(cgen_t *cgen, const parser_t *parser, ast_node_pos pos);
 extern LLVMTypeRef _cgen_get_array_base_type(cgen_t *cgen, int name); 
+extern LLVMValueRef _cgen_call_base_lib(cgen_t *cgen, int name);
 
 
 extern slice_char_t _get_current_function(cgen_t *cgen);
 extern slice_char_t _cgen_push_function(cgen_t *cgen, uint32_t name);
 extern slice_char_t _cgen_pop_function(cgen_t *cgen);
-extern slice_char_t _cgen_push_function_name(cgen_t *cgen, slice_char_t name);
+extern void         _cgen_push_function_name(cgen_t *cgen, slice_char_t name);
 
 extern void block_push(BlockContext **h, LLVMValueRef f, LLVMBasicBlockRef b, int c );
 extern void loop_push (LoopInfo **h, LLVMBasicBlockRef loop, LLVMBasicBlockRef after, int label);
@@ -122,6 +132,15 @@ extern void cgen_verify_module(cgen_t *cgen);
 #pragma endregion
 
 #ifdef CGEN_IMPLEMENT
+
+#define PROC(name, ...)  #name,
+#define IFUNC(name, ...) #name,
+#define BFUNC(name, ...) #name,
+static const char* cgen_lib_names[] = { DANA_LIBRARY };
+#undef PROC
+#undef IFUNC
+#undef BFUNC
+
 #pragma region STACKS IMPLEMENTATIONS
 /*Symbol Table*/
 cg_table_t
@@ -135,7 +154,11 @@ cg_table_create (void)
 void
 cg_table_destroy (cg_table_t *this)
 {
-	stack_free(this->scopes);
+    for (cg_scope_t *next; !stack_empty(this->scopes); this->scopes = next) {
+	next = stack_next(this->scopes);
+	hm_free(*this->scopes);
+	stack_pop(this->scopes);
+    }
 }
 
 cgen_var_t
@@ -151,13 +174,14 @@ cg_get_symbol (const cg_table_t *this, uint16_t name)
 inline void
 cg_pop_scope (cg_table_t *this)
 {
-	stack_pop(this->scopes);
+    hm_free(stack_top(this->scopes));
+    stack_pop(this->scopes);
 }
 
 inline void
 cg_push_scope (cg_table_t *this)
 {
-	stack_push(this->scopes, (cg_scope_t){0});
+    stack_push(this->scopes, (cg_scope_t){0});
 }
 
 inline bool
@@ -183,7 +207,7 @@ _get_current_function(cgen_t *cgen) {
 slice_char_t 
 _cgen_push_function(cgen_t *cgen, uint32_t name) {
     slice_char_t temp = _get_current_function(cgen);
-    slice_char_t new_scope = str_append(temp, str_from_number(name), .sep = StrLit("_"));
+    slice_char_t new_scope = str_append(temp, str_from_number(name), .sep = StrLit("_"), .c_str = true);
     string_node* new_node = malloc(sizeof(string_node));
     *new_node = (string_node){ .str = new_scope, .next = NULL, .prev = NULL };
     ListPushBack(cgen->scope, new_node);
@@ -197,12 +221,11 @@ _cgen_pop_function(cgen_t *cgen) {
     return temp;
 }
 
-slice_char_t 
+void 
 _cgen_push_function_name(cgen_t *cgen, slice_char_t name) {
     string_node* new_node = malloc(sizeof(string_node));
     *new_node = (string_node){ .str = name, .next = NULL, .prev = NULL };
     ListPushBack(cgen->scope, new_node);
-    return name;
 }
 
 /*Blocks*/
@@ -239,38 +262,99 @@ find_loop (LoopInfo **h, int label) {
 
 #pragma endregion
 
-
 #pragma region CODEGEN IMPLEMENTATIONS
 
 #define c8(c) LLVMConstInt(LLVMInt8TypeInContext(cgen->Context), (uint64_t)(c), false)
-#define c32(i) LLVMConstInt(LLVMInt32TypeInContext(cgen->Context), (uint64_t)(i), false)
+#define c16(i) LLVMConstInt(LLVMInt16TypeInContext(cgen->Context), (uint64_t)(i), false)
 
-void cgen_create(cgen_t *cgen) {
+cgen_t cgen_create(const parser_t * parser) {
     log_c("INITIALIZING CODEGEN");
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
     LLVMInitializeNativeAsmParser();
+    
 
-    log_c("Creating context and module");
-    cgen->Context = LLVMContextCreate();
-    cgen->Module = LLVMModuleCreateWithNameInContext("my_module", cgen->Context);
-    cgen->IRBuilder = LLVMCreateBuilderInContext(cgen->Context);
+    LLVMContextRef context = LLVMContextCreate();
 
-    cgen->i1 = LLVMInt1TypeInContext(cgen->Context);
-    cgen->i8 = LLVMInt8TypeInContext(cgen->Context);
-    cgen->i32 = LLVMInt32TypeInContext(cgen->Context);
-    cgen->i64 = LLVMInt64TypeInContext(cgen->Context);
+    cgen_t ret = {
+	/* context and module */
+        .Context = context,
+        .Module = LLVMModuleCreateWithNameInContext("my_module", context),
+        .IRBuilder = LLVMCreateBuilderInContext(context),
+       
 
-    log_c("Creating symbol table");
-    cg_table_t CG_CLEANUP temp = cg_table_create();
-    cgen->cg_st = temp;
-    log_c("Creating global scope");
-    cgen->scope = (string_list){0};
-    stack_push(cgen->block_stack, (BlockContext){0});
-    stack_push(cgen->loop_stack, (LoopInfo){0});
+        // AND/OR set alignstack on your calling functions
+        .stack_align = LLVMCreateEnumAttribute(
+            context,
+            LLVMGetEnumAttributeKindForName("alignstack", 10),
+            16
+        ),
+	/* types */
+        .i1 = LLVMInt1TypeInContext(context),
+        .i8 = LLVMInt8TypeInContext(context),
+        .i16 = LLVMInt16TypeInContext(context),
+        .i32 = LLVMInt32TypeInContext(context),
+        .i64 = LLVMInt64TypeInContext(context),
+	/* symbol table */
+	    .cg_st = cg_table_create(),
+    };
 
-    cgen->block_term = NO_TERM;
-    cgen->loop_to_check = 0;
+    LLVMSetDataLayout(ret.Module, "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128");
+    /* global scope */
+    stack_push(ret.block_stack, (BlockContext){0});
+    stack_push(ret.loop_stack, (LoopInfo){0});
+
+    /* base library */
+    #define INT    ret.i64
+    #define BYTE   ret.i8
+    #define STRING LLVMPointerType(BYTE, 0)
+    #define CG_ARGC_(_1, _2, n, ...) n
+    #define CG_ARGC(...) CG_ARGC_(__VA_ARGS__, 2, 1, 0)
+    #define PROC(name, ...)  { .ret = LLVMVoidTypeInContext(context), .args = { __VA_ARGS__ }, .count = CG_ARGC(__VA_ARGS__) },
+    #define IFUNC(name, ...) { .ret = ret.i16, .args = { __VA_ARGS__ }, .count = 0 },
+    #define BFUNC(name, ...) { .ret = BYTE, .args = { __VA_ARGS__ }, .count = CG_ARGC(__VA_ARGS__) },
+    struct {
+        LLVMTypeRef ret;
+        LLVMTypeRef args[2];
+        int count;
+    } cgen_lib_types[] = { DANA_LIBRARY };
+    #undef INT
+    #undef BYTE
+    #undef PROC
+    #undef IFUNC
+    #undef BFUNC
+
+	for (size_t i=0; i<hm_ulen(parser->names); ++i) {
+		for (size_t j=0; j<LENGTH(cgen_lib_names); ++j) {
+			if (strlen(cgen_lib_names[j]) != parser->names[i].decl.length)
+				continue;
+			if (memcmp(parser->names[i].decl.ptr, cgen_lib_names[j],
+						parser->names[i].decl.length))
+				continue;
+            hm_put(ret.base_lib, parser->names[i].value, cgen_lib_names[j]);
+            LLVMTypeRef func_type;
+            switch (cgen_lib_types[j].count) {
+            case 0: 
+                log_c("Adding zero arg function");
+                func_type = LLVMFunctionType(cgen_lib_types[j].ret, NULL, 0, false);
+                break;
+            case 1:
+                log_c("Adding one arg function");
+                func_type = LLVMFunctionType(cgen_lib_types[j].ret, cgen_lib_types[j].args, 1, false);
+                break;
+            case 2: default:
+                log_c("Adding %d arg function", cgen_lib_types[j].count);
+                func_type = LLVMFunctionType(cgen_lib_types[j].ret, cgen_lib_types[j].args, 2, false);
+                break;                            
+            }
+            LLVMValueRef f = LLVMAddFunction(ret.Module, cgen_lib_names[j], func_type);
+            LLVMSetFunctionCallConv(f, LLVMCCallConv);
+            LLVMAddAttributeAtIndex(f, LLVMAttributeFunctionIndex, ret.stack_align);
+			break;
+		}
+	}
+
+    return ret;
 }
 
 void cgen_destroy(cgen_t *cgen) {
@@ -279,9 +363,10 @@ void cgen_destroy(cgen_t *cgen) {
     LLVMContextDispose(cgen->Context);  
 
     cg_table_destroy(&(cgen->cg_st));
-    //string_list_free(&cgen->scope);
+    ListFree(cgen->scope);
     stack_free(cgen->block_stack);
     stack_free(cgen->loop_stack);
+    hm_free(cgen->base_lib);
 }
 
 void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos) {
@@ -291,9 +376,11 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos) 
 
     assert(node_at(parser, pos).type == AST_DEF_PROC);
 
-    LLVMTypeRef main_func_type = LLVMFunctionType(cgen->i32, NULL, 0, false);
+    LLVMTypeRef main_func_type = LLVMFunctionType(cgen->i16, NULL, 0, false);
     LLVMValueRef main_func = LLVMAddFunction(cgen->Module, "main", main_func_type);
     LLVMSetFunctionCallConv(main_func, LLVMCCallConv);
+    LLVMAddAttributeAtIndex(main_func, LLVMAttributeFunctionIndex, cgen->stack_align);
+    
 
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(cgen->Context, main_func, "entry");
     LLVMPositionBuilderAtEnd(cgen->IRBuilder, entry);
@@ -317,7 +404,8 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos) 
 
     log_c("Getting initial function");
 
-    slice_char_t func_name =  str_append(_get_current_function(cgen), str_from_number(node.name), .sep = StrLit("_"));
+    slice_char_t STR_CLEANUP node_name = str_from_number(node.name),
+		 func_name =  str_append(_get_current_function(cgen), node_name, .sep = StrLit("_"), .c_str = true);
     log_c("Initial function name: %.*s", UNSLICE(func_name));
     LLVMValueRef func = LLVMGetNamedFunction(cgen->Module, func_name.ptr);
     if(!func) {
@@ -330,7 +418,7 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos) 
 
     log_c("Building return");
 
-    LLVMBuildRet(cgen->IRBuilder, c32(0));
+    LLVMBuildRet(cgen->IRBuilder, c16(0));
 
     cgen_verify_module(cgen);
 
@@ -349,14 +437,14 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
 
     if(cgen->block_term) {
         log_c("Block already has return, skipping code generation");
-        return NULL;
+        return LLVMGetUndef(LLVMInt16Type());
     }
 
     LLVMBasicBlockRef tmp = LLVMGetInsertBlock(cgen->IRBuilder);
     log_c("I am at block %s", LLVMGetBasicBlockName(tmp));
 
     #define GENERATE_CHLD(temp) for (; ast_is_child(it); it = ast_next_child(it)) \
-	temp = _cgen_generate_code(cgen, parser, it.pos)
+	try(temp = _cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "While generating block", PAR_FPOS(parser, pos))
 
 	ast_node_t node = node_at(parser, pos);
 	ast_node_it it = ast_get_child(parser, pos);
@@ -374,13 +462,15 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         return c8('\x00');
     break; case AST_NUMBER:
         log_c("Generating number %d", node.pl_data.num);
-        return c32(node.pl_data.num);
+        return c16(node.pl_data.num);
     break; case AST_CHAR:
         log_c("Generating char '%c'", node.pl_data.ch);
         return c8(node.pl_data.ch);
     break; case AST_STRING:
         log_c("Generating string");
-        return LLVMBuildGlobalStringPtr(cgen->IRBuilder, par_get_text(parser, node.pl_data.str), "str");
+        lhs = LLVMBuildGlobalStringPtr(cgen->IRBuilder, par_get_text(parser, node.pl_data.str), "str");
+        LLVMSetAlignment(lhs, 16);
+        return lhs;
     break; case AST_NAME: 
         log_c("Generating name %.*s", UNSLICE(par_get_name(parser, node)));
         return _cgen_get_var_value(cgen, parser, pos, false);
@@ -497,16 +587,33 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
     break; case AST_FUNC_CALL: case AST_PROC_CALL:
         {
         log_c("Generating function/procedure call");
-        slice_char_t func_name =  str_append(_get_current_function(cgen), str_from_number(node.name), .sep = StrLit("_"));
-        LLVMValueRef func = LLVMGetNamedFunction(cgen->Module, func_name.ptr);
-        str_destroy(&func_name);
-        throw_if(!func, LLVMValueRef, PAR_FSTR "function %.*s not declared", PAR_FPOS(parser, node), UNSLICE(func_name));
+        bool is_base_lib = false;
+        LLVMValueRef func = NULL;
+        cgen_var_t sym = cg_get_symbol(&(cgen->cg_st), node.name);
+        //slice_char_t STR_CLEANUP node_name = str_from_number(node.name);
+	    //slice_char_t func_name = str_append(_get_current_function(cgen), node_name, .sep = StrLit("_"), .c_str = true);
+        //LLVMValueRef func = LLVMGetNamedFunction(cgen->Module, func_name.ptr);
+        //str_destroy(&func_name);
+        if(LLVMIsAFunction(sym.alloca)) {
+            func = sym.alloca;
+        }
+
+        if(!func) {
+            ptrdiff_t idx = hm_geti(cgen->base_lib, node.name);
+            is_base_lib = ( idx != -1);
+            printf("result that I got from searching was %td when searching for id %d\n", idx, node.name);
+            if(is_base_lib) {
+                func = LLVMGetNamedFunction(cgen->Module, cgen->base_lib[idx].value);
+                printf("name that I was searching was %s\n", cgen->base_lib[idx].value);
+            }
+        }
+            
+        throw_if(!func, LLVMValueRef, PAR_FSTR "function not declared", PAR_FPOS(parser, node));
+
         LLVMTypeRef func_type = LLVMGlobalGetValueType(func);
         LLVMValueRef arg;
-        LLVMValueRef* args;
-        LLVMTypeRef* arg_types;
-        arr_init(args);
-        arr_init(arg_types);
+        LLVMValueRef* args = {0};
+        LLVMTypeRef* arg_types = {0};
 
         size_t arg_count = LLVMCountParams(func);
         arr_setcap(arg_types, arg_count);
@@ -517,11 +624,18 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
                 arg = try(_cgen_get_var_value(cgen, parser, it.pos, true), "while calling args");
             else
                 arg = try(_cgen_generate_code(cgen, parser, it.pos), "while calling args");
+
+            if(is_base_lib && arg_types[i]==cgen->i64) {
+                arg = LLVMBuildSExt(cgen->IRBuilder, arg, cgen->i64, "Sext");
+            }
             arr_push(args, arg);
         }
+
         slice_char_t call_name = node.type == AST_FUNC_CALL ? StrLit("calltmp") : StrLit("");
         LLVMValueRef call = LLVMBuildCall2(cgen->IRBuilder, func_type, func, args, arr_len(args), call_name.ptr);
+
         arr_free(args);
+	    arr_free(arg_types);
         return call;
         }
     /* scope-creating nodes */
@@ -549,7 +663,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         if(node.type == AST_DECL_PROC || node.type == AST_DEF_PROC)
             ret_type = LLVMVoidTypeInContext(cgen->Context);
         else if (node.type == AST_DECL_INT || node.type == AST_DEF_INT)
-            ret_type = cgen->i32;
+            ret_type = cgen->i16;
         else
             ret_type = cgen->i8;
 
@@ -557,7 +671,8 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         LLVMTypeRef func_type = LLVMFunctionType(ret_type, arg_types, arr_len(arg_types), false);
 
         log_c("Creating function name");
-        slice_char_t func_name =  str_append(_get_current_function(cgen), str_from_number(node.name), .sep = StrLit("_"));
+        slice_char_t STR_CLEANUP node_name = str_from_number(node.name),
+		     func_name = str_append(_get_current_function(cgen), node_name, .sep = StrLit("_"), .c_str = true);
 
         log_c("Checking if function %.*s already exists", UNSLICE(func_name));
         LLVMValueRef test_func = LLVMGetNamedFunction(cgen->Module, func_name.ptr);
@@ -569,6 +684,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
             const char* func_name_cstr = LLVMGetValueName2(test_func, &leng);
             log_c("Created function %.*s", (int)leng, func_name_cstr);
             LLVMSetFunctionCallConv(test_func, LLVMCCallConv);
+            LLVMAddAttributeAtIndex(test_func, LLVMAttributeFunctionIndex, cgen->stack_align);
             log_c("Adding function to the symbol table");
             cg_put_symbol(&(cgen->cg_st), node.name, (cgen_var_t){ .type = func_type, .alloca = test_func, .element_type = ret_type, .ptr_type=NULL});
         }
@@ -608,9 +724,10 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
                     types.type = cgen->i8;
                 case AST_REF_INT: 
                     types.alloca = param;
-                    types.type = cgen->i32;
+                    types.type = cgen->i16;
                 break; case AST_INT: case AST_BYTE:
                     types.alloca = LLVMBuildAlloca(cgen->IRBuilder, types.type, "arg");
+                    LLVMSetAlignment(types.alloca, 16);
                     LLVMBuildStore(cgen->IRBuilder, param, types.alloca);
                 break; default:
                     throw(LLVMValueRef, PAR_FSTR "Invalid argument type", PAR_FPOS(parser, *it.node));
@@ -634,6 +751,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
                             {                
                             cgen_var_t types = _cgen_get_var_types(cgen, parser, it.pos, false);
                             types.alloca = LLVMBuildAlloca(cgen->IRBuilder, types.type, "local_def");
+                            LLVMSetAlignment(types.alloca, 16);
                             throw_if(cg_put_symbol(&(cgen->cg_st), it.node->name, types), LLVMValueRef,
                                 PAR_FSTR "redeclaration of variable %.*s",
                                 PAR_FPOS(parser, *it.node),
@@ -649,6 +767,8 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         
         cgen->block_term = NO_TERM;
         cgen->loop_to_check = 0;
+
+        if(!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(cgen->IRBuilder))) LLVMBuildRetVoid(cgen->IRBuilder);
 
         LLVMVerifyFunction(test_func, LLVMPrintMessageAction);
 
@@ -671,7 +791,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
     }
     /* statements */
     break; case AST_SKIP:
-        return NULL;
+        return LLVMGetUndef(LLVMInt16Type());
     break; case AST_EXIT:
         log_c("Generating exit");
         cgen->block_term = CG_RET;
@@ -688,7 +808,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
 
         LLVMBuildBr(cgen->IRBuilder, node.type == AST_BREAK ? loop.AfterBlock : loop.LoopBlock);
         cgen->block_term = node.type == AST_BREAK ? CG_BREAK: CG_CONT;
-        return NULL;
+        return LLVMGetUndef(LLVMInt16Type());
     }
     break; case AST_LOOP:
         {
@@ -739,7 +859,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
                     {
                         unsigned bits = LLVMGetIntTypeWidth(ret_type);
                         if(bits <= 8) LLVMBuildRet(cgen->IRBuilder, c8(1));
-                        else LLVMBuildRet(cgen->IRBuilder, c32(1));
+                        else LLVMBuildRet(cgen->IRBuilder, c16(1));
                     }
                     break; case(LLVMVoidTypeKind):
                         LLVMBuildRetVoid(cgen->IRBuilder);
@@ -787,6 +907,8 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         cgen->block_stack->current_block = cond_block;
         
         LLVMValueRef ret = _cgen_generate_code(cgen, parser, it.pos);
+        if(LLVMTypeOf(ret) == (cgen->i8)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), ret, "bool_cond");
+        if(LLVMTypeOf(ret) == (cgen->i16)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c16(0), ret, "bool_cond");
         LLVMBuildCondBr(cgen->IRBuilder, ret, then_block, else_block);
 
         it = ast_next_child(it);
@@ -809,6 +931,8 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         for (; ast_is_child(it); it = ast_next_child(it)) {
 			if (ast_is_child(ast_next_child(it))) {
 				ret = _cgen_generate_code(cgen, parser, it.pos);
+                if(LLVMTypeOf(ret) == (cgen->i8)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), ret, "bool_cond");
+                if(LLVMTypeOf(ret) == (cgen->i16)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c16(0), ret, "bool_cond");
                 then_block = LLVMAppendBasicBlockInContext(cgen->Context, func, "then");
                 else_block = LLVMAppendBasicBlockInContext(cgen->Context, func, "else(_if)");
                 LLVMBuildCondBr(cgen->IRBuilder, ret, then_block, else_block);
@@ -843,7 +967,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         LLVMPositionBuilderAtEnd(cgen->IRBuilder, after_block);
         cgen->block_stack->current_block = after_block;
 
-        return NULL;
+        return LLVMGetUndef(LLVMInt16Type());
         }
     break; default:
         log_c("Shouldn't have come here");
@@ -870,11 +994,11 @@ cgen_var_t _cgen_get_var_types(cgen_t *cgen, const parser_t *parser, ast_node_po
             }
             }
         break; case AST_INT: 
-            types.type = cgen->i32; 
+            types.type = cgen->i16; 
         break; case AST_BYTE: 
             types.type = cgen->i8; 
         break; case AST_REF_INT: 
-            types.type = LLVMPointerType(cgen->i32, 0); 
+            types.type = LLVMPointerType(cgen->i16, 0); 
         break; case AST_REF_BYTE: 
             types.type = LLVMPointerType(cgen->i8, 0); 
         break; default:
@@ -900,8 +1024,8 @@ cgen_var_t _cgen_get_array_type(cgen_t *cgen, const parser_t *parser, ast_node_t
         return types;
     } else {
         if (type.type & DTYPE_INT) {
-            types.type = cgen->i32;
-            types.element_type = cgen->i32;
+            types.type = cgen->i16;
+            types.element_type = cgen->i16;
             return types;
         }
         if (type.type & DTYPE_BYTE) {
@@ -932,6 +1056,12 @@ LLVMValueRef _cgen_get_var_value(cgen_t *cgen, const parser_t *parser, ast_node_
             ptr = var.alloca;
             var_type = var.type; 
             }
+        break; case AST_STRING: 
+            {
+            ptr = LLVMBuildGlobalStringPtr(cgen->IRBuilder, par_get_text(parser, node.pl_data.str), "str");
+            LLVMSetAlignment(ptr, 16);
+            var_type = LLVMPointerType(cgen->i8, 0);
+            }
         break; default:
             throw(LLVMValueRef, PAR_FSTR "Invalid node for variable", PAR_FPOS(parser, node));
             return NULL;
@@ -947,7 +1077,7 @@ LLVMValueRef _cgen_get_array_at_ptr(Unused cgen_t *cgen, Unused const parser_t *
     ast_node_it it = ast_get_child(parser, pos);
 
     LLVMValueRef* indices;
-    LLVMValueRef index = c32(0);
+    LLVMValueRef index = c16(0);
 
     cgen_var_t array;
     LLVMValueRef ptr;
