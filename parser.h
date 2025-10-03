@@ -614,6 +614,7 @@ parser_destroy (parser_t *this)
 	arr_free(this->types);
 	arr_free(this->indents);
 	hm_free(this->names);
+	lexer_destroy(&this->lexer);
 }
 
 inline ast_node_pos

@@ -15,6 +15,8 @@ typedef struct {
 
 #endif
 
+#define STR_CLEANUP __attribute__((cleanup(str_destroy)))
+
 
 typedef struct string_node string_node;
 typedef struct string_list string_list;
@@ -22,10 +24,11 @@ struct string_list {
  struct string_node { string_node *next, *prev; slice_char_t str; } *first, *last;
 };
 
-typedef struct { slice_char_t sep; } string_opts;
+typedef struct { slice_char_t sep; bool c_str; } string_opts;
 
 #define ListPushBack(u, n)  ListInsertNP((u).first, (u).last, (u).last, n, next, prev)
 #define ListPopBack(u)      ListEraseNP((u).first, (u).last, (u).last, next, prev)
+#define ListFree(u)         while ((u).last) ListPopBack(u)
 
 #define StrLit(s) ((slice_char_t){s, sizeof(s)-1})
 #define STR_CLEANUP __attribute__((cleanup(str_destroy)))
@@ -46,15 +49,19 @@ str_destroy (slice_char_t *this)
 slice_char_t
 str_append_opts (slice_char_t start, slice_char_t end, string_opts opts)
 {
-    slice_char_t ret = { .length = start.length + end.length + opts.sep.length };
+    size_t start_len = start.ptr[start.length - 1] == '\0' ? start.length - 1 : start.length,
+           end_len   = end.ptr[end.length - 1] == '\0' ? end.length - 1 : end.length;
+    slice_char_t ret = { .length = start_len + end_len + opts.sep.length + (int)opts.c_str };
 
     if (!ret.length) return ret;
     ret.ptr = malloc(sizeof(char) * ret.length);
     assert(ret.ptr);
-    memcpy(ret.ptr, start.ptr, sizeof(char) * start.length);
+    memcpy(ret.ptr, start.ptr, sizeof(char) * start_len);
     if (opts.sep.length)
-        memcpy(ret.ptr + start.length, opts.sep.ptr, sizeof(char) * opts.sep.length);
-    memcpy(ret.ptr + start.length + opts.sep.length, end.ptr, sizeof(char) * end.length);
+        memcpy(ret.ptr + start_len, opts.sep.ptr, sizeof(char) * opts.sep.length);
+    memcpy(ret.ptr + start_len + opts.sep.length, end.ptr, sizeof(char) * end_len);
+    if (opts.c_str)
+        ret.ptr[ret.length - 1] = '\0';
     return ret;
 }
 

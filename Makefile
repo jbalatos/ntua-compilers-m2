@@ -1,7 +1,7 @@
 LLVMCONFIG = llvm-config-16
 
 CC = clang
-CFLAGS=-Wall -Wextra -Werror -g -std=gnu17 -fblocks  -Wno-unknown-pragmas `$(LLVMCONFIG) --cflags`
+CFLAGS=-Wall -Wextra -Werror -g -std=gnu17 -fblocks -fPIE -Wno-unknown-pragmas `$(LLVMCONFIG) --cflags`
 LDLIBS=-lBlocksRuntime `$(LLVMCONFIG) --ldflags --system-libs --libs all`
 SRC = main.c
 DIST = main

@@ -305,6 +305,7 @@ hm_grow_int (void *a, size_t to_add, size_t min_cap, size_t elemsize)
 	void *ret;
 
 	if (new_cap < min_cap) new_cap = min_cap;
+	if (new_cap <= arr_ucap(a)) return a;
 	if (min_cap < 2 * arr_ucap(a)) new_cap = 2 * arr_ucap(a);
 	ret = sizeof(arr_header_t) + 
 		malloc(new_cap * elemsize + sizeof(arr_header_t));

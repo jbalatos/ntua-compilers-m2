@@ -2,6 +2,8 @@
 
 #include <stdlib.h>
 
+#define LENGTH(x) (sizeof(x)/sizeof(x[0]))
+
 #if !defined(typeof)
 #	define typeof __typeof__
 #endif

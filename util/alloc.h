@@ -27,7 +27,7 @@
 #define EXPAND_SLICE(sl) { (sl).ptr, (sl).length }
 #define set_slice(dst, src) ({                                             \
 		__auto_type __tmp__ = (src);                               \
-		(dst) = (typeof(dst)){ (__tmp__).ptr, (__tmp__).length }; })
+		(dst) = (typeof(dst)){ .ptr = (__tmp__).ptr, .length = (__tmp__).length }; })
 #define UNSLICE(sl) (sl).length, (sl).ptr
 
 typedef slice(void) slice_t;

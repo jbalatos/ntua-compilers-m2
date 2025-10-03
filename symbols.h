@@ -97,3 +97,19 @@
 			case AST_STRING: \
 			case AST_ARRAY_AT
 
+#define DANA_LIBRARY \
+	PROC(writeInteger,	INT)	/* output */	\
+	PROC(writeByte,		BYTE)			\
+	PROC(writeChar,		BYTE)			\
+	PROC(writeString,	STRING)			\
+	IFUNC(readInteger)		/* input */	\
+	BFUNC(readByte)					\
+	BFUNC(readChar)					\
+	PROC(readString,	INT,	STRING)		\
+	IFUNC(extend,		BYTE)	/* casting */	\
+	BFUNC(shrink,		INT)			\
+	IFUNC(strlen,		STRING)	/* strings */	\
+	IFUNC(strcmp,		STRING,	STRING)		\
+	PROC(strcpy,		STRING,	STRING)		\
+	PROC(strcat,		STRING,	STRING)		\
+	
