@@ -69,7 +69,7 @@ parse_opt (int key, char *arg, struct argp_state *state)
 	break; case ARGP_KEY_END:
 		if (!args->output)
 			args->output = default_output;
-		if (!args->input && args->flg == OPT_ASM) {
+		if (!args->input && args->flg == OPT_EXEC) {
 			argp_error(state, "Must include input file");
 			argp_usage(state);
 		}
@@ -128,6 +128,9 @@ int main (int argc, char *argv[argc])
 		printf("\n=== Parsing Failed ===\n");
 		return 1;
 	}
+
+	debug_ast(&parser, root);
+	debug_ast_array(&parser);
 
 	if (!sem_check(&parser, root)) {
 		printf("\n=== Semantic Check Failed ===\n");

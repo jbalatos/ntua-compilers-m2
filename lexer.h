@@ -373,8 +373,8 @@ lex_get_char (const lexer_t *this, lex_token_t tok)
 	char buf[2];
 
 	switch (sl.length) {
-	case 2: return sl.ptr[1];
-	case 3: switch(sl.ptr[2]) {
+	case 3: return sl.ptr[1];
+	case 4: switch(sl.ptr[2]) {
 		case 'n': return '\n';
 		case 't': return '\t';
 		case 'r': return '\r';
