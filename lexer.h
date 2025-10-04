@@ -29,6 +29,7 @@ typedef struct {
 	const alloc_t *alloc;
 	const char    *fname;
 	lex_buf_pos   *lines; /* dynamic array of beginnings-of-line */
+	uint32_t buffer_cap;
 } lexer_t;
 
 typedef struct { uint16_t line, column; } file_pos;
@@ -73,7 +74,8 @@ typedef struct {
 
 #pragma region METHOD DELCARATIONS
 #define LEX_CLEANUP    __attribute__((cleanup(lexer_destroy)))
-extern lexer_t         lexer_create(const alloc_t *alloc, const char *fname);
+extern lexer_t         lexer_create_from_file(const alloc_t *alloc, const char *fname);
+extern lexer_t         lexer_create_from_stdin(const alloc_t *alloc);
 extern void            lexer_destroy(const lexer_t *this);
 extern lex_token_t     lex_next_token(lexer_t *this, const lex_token_t *prev);
 extern slice_char_t    lex_get_token(const lexer_t *this, lex_token_t tok);
@@ -224,7 +226,7 @@ lex_get_file_pos (const lexer_t *this, lex_buf_pos pos)
 #ifdef LEX_IMPLEMENT
 #pragma region METHODS
 lexer_t
-lexer_create (const __attribute__((unused)) alloc_t *alloc, const char *fname)
+lexer_create_from_file (const __attribute__((unused)) alloc_t *alloc, const char *fname)
 {
 	lexer_t ret = { .alloc = alloc, .fname = fname };
 	FILE *fp = fopen(fname, "r");
@@ -241,6 +243,37 @@ lexer_create (const __attribute__((unused)) alloc_t *alloc, const char *fname)
 		ret.buffer.ptr[ret.buffer.length] = '\0';
 		fclose(fp);
 	}
+
+	if (ret.buffer.ptr) {
+		lex_push_line(&ret, (lex_buf_pos){0});
+		for (uint32_t i = 0; i < ret.buffer.length; ++i)
+			if (ret.buffer.ptr[i] == '\n')
+				lex_push_line(&ret, (lex_buf_pos){ i + 1 });
+	}
+
+	return ret;
+}
+
+lexer_t
+lexer_create_from_stdin (const __attribute__((unused)) alloc_t *alloc)
+{
+	lexer_t ret = {
+		.alloc = alloc,
+		.buffer = { .ptr = malloc(sizeof(char) * 64), .length = 0 },
+		.buffer_cap = 64,
+	};
+	size_t n;
+
+	while ((n = fread(ret.buffer.ptr + ret.buffer.length, 1,
+					ret.buffer_cap - ret.buffer.length,
+					stdin)) > 0) {
+		ret.buffer.length += n;
+		if (ret.buffer.length == ret.buffer_cap) {
+			ret.buffer_cap *= 2;
+			ret.buffer.ptr = realloc(ret.buffer.ptr, sizeof(char) * ret.buffer_cap);
+		}
+	}
+	ret.buffer.length -= 1;
 
 	if (ret.buffer.ptr) {
 		lex_push_line(&ret, (lex_buf_pos){0});

@@ -4,7 +4,13 @@
 #if defined(ENABLE_SANITIZER)
 #	include <sanitizer/asan_sanitizer.h>
 #endif
-	
+#if defined(ENABLE_DEBUG)
+#	define SEM_DEBUG
+#	define CGEN_DEBUG
+#endif
+
+enum compiler_options { OPT_EXEC = 0, OPT_ASM, OPT_IR } __attribute__((packed));
+
 #define ALLOC_IMPLEMENT
 #include "util/alloc.h"
 
@@ -12,23 +18,12 @@
 #include "parser.h"
 
 #define SEM_IMPLEMENT
-#ifdef ENABLE_DEBUG
-#	define SEM_DEBUG
-#endif
 #include "semantic.h"
 
 #define CGEN_IMPLEMENT
-#define CGEN_DEBUG
 #include "codegen.h"
 
-/* debug printing */
-void debug_ast(const parser_t *parser, ast_node_pos root);
-void debug_ast_array(const parser_t *parser);
-void debug_line_map(const parser_t *parser);
-void debug_name_table(const parser_t *parser);
-void debug_type_table(const parser_t *parser);
-
-/* CLI options */
+#pragma region CLI options
 const char *argp_program_version = "Dana parser 1.0";
 const char *argp_program_bug_address = "<el21170@ntua.gr>, <el21001@ntua.gr>";
 static const char doc[] = "Compiler for Dana language. Part of Compilers class for NTUA ECE.\n"
@@ -45,11 +40,7 @@ static struct argp_option options[] = {
 
 struct opt_args {
 	const char *input, *output;
-	enum {
-		OPT_BIN_TO_FILE = 0,
-		OPT_BIN_TO_STDOUT,
-		OPT_IR_TO_STDOUT,
-	} __attribute__((packed)) flg;
+	enum compiler_options flg;
 	bool optimize : 1;
 };
 
@@ -66,11 +57,11 @@ parse_opt (int key, char *arg, struct argp_state *state)
 	break; case 'f':
 		if (args->flg != 0)
 			argp_error(state, "Can only use one of -o / -f / -i");
-		args->flg = OPT_BIN_TO_STDOUT;
+		args->flg = OPT_EXEC;
 	break; case 'i':
 		if (args->flg != 0)
 			argp_error(state, "Can only use one of -o / -f / -i");
-		args->flg = OPT_IR_TO_STDOUT;
+		args->flg = OPT_IR;
 	break; case 'O':
 		args->optimize = true;
 	break; case ARGP_KEY_ARG:
@@ -78,8 +69,16 @@ parse_opt (int key, char *arg, struct argp_state *state)
 	break; case ARGP_KEY_END:
 		if (!args->output)
 			args->output = default_output;
-		if (!args->input && args->flg == OPT_BIN_TO_FILE)
+		if (!args->input && args->flg == OPT_ASM) {
+			argp_error(state, "Must include input file");
 			argp_usage(state);
+		}
+		if (args->input && strncmp(
+					args->input + strlen(args->input) - 5,
+					".dana", 5)) {
+			argp_error(state, "Invalid input file type; must be .dana");
+			argp_usage(state);
+		}
 	break; default: return ARGP_ERR_UNKNOWN;
 	}
 	return 0;
@@ -91,13 +90,21 @@ static struct argp argp = {
 	.args_doc = args_doc,
 	.doc = doc,
 };
+#pragma endregion
+
+/* debug printing */
+static void debug_ast(const parser_t *parser, ast_node_pos root);
+static void debug_ast_array(const parser_t *parser);
+static void debug_line_map(const parser_t *parser);
+static void debug_name_table(const parser_t *parser);
+static void debug_type_table(const parser_t *parser);
 
 int main (int argc, char *argv[argc])
 {
 	struct opt_args args = {0};
 	argp_parse(&argp, argc, argv, 0, 0, &args);
 
-#ifdef ENABLE_DEBUG
+#if defined(ENABLE_DEBUG)
 	printf("---DEBUG INFO (%lu):---\n", sizeof(uint8_t));
 	printf("\tLEXER:\r");
 	printf("\t\t lexer_t size: %lu\n", sizeof(lexer_t));
@@ -112,35 +119,58 @@ int main (int argc, char *argv[argc])
 	printf("---DEBUG END---\n\n");
 #endif
 
-	parser_t PARSER_CLEANUP parser = parser_create(lexer_create(&LIBC, args.input));
+	parser_t PARSER_CLEANUP parser = parser_create(args.flg == OPT_EXEC
+			? lexer_create_from_file(&LIBC, args.input)
+			: lexer_create_from_stdin(&LIBC)
+			);
 	ast_node_pos root = parse(&parser);
 	if (!POS_OK(root)) {
-		printf("\n=== PARSING ERROR ===\n");
+		printf("\n=== Parsing Failed ===\n");
 		return 1;
 	}
 
 	if (!sem_check(&parser, root)) {
-		printf("\n=== SEMANTIC ERROR ===\n");
+		printf("\n=== Semantic Check Failed ===\n");
 		return 1;
 	}
 
 	cgen_t CGEN_CLEANUP cgen = cgen_create(&parser, 0);
-	cgen_generate_code(&cgen, &parser, root, false);
+	cgen_generate_code(&cgen, &parser, root, args.flg, args.input);
+
+	if (args.flg == OPT_EXEC) {
+		string_node nodes[] = {
+			{ .str = StrLit("clang -fno-pie -no-pie lib.a") },
+			{ .str = StrLit((char*)args.input) },
+			{ .str = StrLit("-o") },
+			{ .str = StrLit((char*)args.output) }
+		};
+		string_list l = {0};
+		for (size_t i=0; i<4; ++i) ListPushBack(l, nodes + i);
+		slice_char_t STR_CLEANUP cmd = str_join(l, .sep = StrLit(" "), .c_str = true);
+
+		system(cmd.ptr);
+	}
 
 	return 0;
 }
 
-void
+#pragma region DEBUG INFO
+static void __attribute__((unused))
 debug_ast (const parser_t *parser, ast_node_pos root)
 {
+#if defined(ENABLE_DEBUG)
 	printf("\n=== AST PRETTY PRINT ===\n");
 	par_print(parser, root);
 	printf("\n");
+#else
+	(void)parser; (void)root;
+#endif
 }
 
-void
+static void __attribute__((unused))
 debug_ast_array (const parser_t *parser)
 {
+#if defined(ENABLE_DEBUG)
 	printf("\n=== AST ARRAY ===\n");	
 	for (size_t i=0; i<arr_ulen(parser->nodes); ++i)
 		switch (parser->nodes[i].type){
@@ -208,33 +238,44 @@ debug_ast_array (const parser_t *parser)
 					parser->nodes[i].length);
 		}
 	printf("\n");
-
+#else
+	(void)parser;
+#endif
 }
 
-void
+static void __attribute__((unused))
 debug_line_map (const parser_t *parser)
 {
+#if defined(ENABLE_DEBUG)
 	printf("\n=== LINE MAP ===\n");
 	for (size_t i=0; i<hm_ulen(parser->lexer.lines); ++i)
 		printf("Line %4lu\t|%6u\n", i,
 				parser->lexer.lines[i].pos);
 	printf("\n");
+#else
+	(void)parser;
+#endif
 }
 
-void
+static void __attribute__((unused))
 debug_name_table (const parser_t *parser)
 {
+#if defined(ENABLE_DEBUG)
 	printf("\n=== NAME TABLE ===\n");
 	for (size_t i=0; i<arr_ulen(parser->names); ++i) {
 		printf("%4u\t%.*s\n", parser->names[i].value,
 				UNSLICE(parser->names[i].decl));
 	}
 	printf("\n");
+#else
+	(void)parser;
+#endif
 }
 
-void
+static void __attribute__((unused))
 debug_type_table (const parser_t *parser)
 {
+#if defined(ENABLE_DEBUG)
 	printf("\n=== DATA TYPE TABLE ===\n");
 	for (size_t i=1; i<arr_ulen(parser->types); ++i) {
 		printf("%4lu :\t%15s, %u", i,
@@ -246,4 +287,8 @@ debug_type_table (const parser_t *parser)
 			printf("\n");
 	}
 	printf("\n");
+#else
+	(void)parser;
+#endif
 }
+#pragma endregion

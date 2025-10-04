@@ -39,6 +39,8 @@ extern void str_destroy (slice_char_t *this);
 extern slice_char_t str_from_number(uint32_t n);
 #define str_append(dst, src, ...) str_append_opts(dst, src, (string_opts){ __VA_ARGS__ })
 extern slice_char_t str_append_opts(slice_char_t start, slice_char_t end, string_opts opts);
+#define str_join(l, ...) str_join_opts(l, (string_opts){ __VA_ARGS__ })
+extern slice_char_t str_join_opts(string_list l, string_opts opts);
 
 extern int isHexDigit(char c);
 extern int hexValue(char c);
@@ -51,7 +53,6 @@ str_destroy (slice_char_t *this)
 {
     if (this->ptr) free(this->ptr);
 }
-
 
 slice_char_t
 str_append_opts (slice_char_t start, slice_char_t end, string_opts opts)
@@ -70,6 +71,29 @@ str_append_opts (slice_char_t start, slice_char_t end, string_opts opts)
     if (opts.c_str)
         ret.ptr[ret.length - 1] = '\0';
     return ret;
+}
+
+slice_char_t
+str_join_opts (string_list l, string_opts opts)
+{
+	size_t total_size = 0;
+	for (string_node *u = l.first; u; u = u->next) {
+		if (u != l.last) total_size += opts.sep.length;
+		total_size += u->str.length;
+	}
+
+	slice_char_t ret = {
+		.ptr = calloc(sizeof(char), total_size),
+		.length = 0,
+	};
+
+	for (string_node *u = l.first; u; u = u->next ) {
+		memcpy(ret.ptr + ret.length, u->str.ptr, u->str.length);
+		if (u != l.last)
+			memcpy(ret.ptr + ret.length, opts.sep.ptr, opts.sep.length);
+	}
+	if (opts.c_str) ret.length += 1;
+	return ret;
 }
 
 slice_char_t

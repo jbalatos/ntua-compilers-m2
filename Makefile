@@ -1,4 +1,8 @@
+ifeq ($(shell command -v llvm-config-16 2>/dev/null),)
+LLVMCONFIG = llvm-config
+else
 LLVMCONFIG = llvm-config-16
+endif
 
 CC = clang
 CFLAGS=-Wall -Wextra -Werror -g -std=gnu17 -fblocks -fPIE -Wno-unknown-pragmas `$(LLVMCONFIG) --cflags`

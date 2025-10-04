@@ -110,7 +110,7 @@ extern LLVMValueRef c16(int16_t i);
 extern cgen_t cgen_create(const parser_t * parser, int opt_level);
 extern void cgen_destroy(cgen_t *cgen);
 
-extern void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, bool stop_at_ir);
+extern void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, enum compiler_options flg, const char *fname);
 extern LLVMValueRef _cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos);
 
 extern cgen_var_t _cgen_get_var_types(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, bool is_arg);
@@ -438,7 +438,7 @@ void cgen_destroy(cgen_t *cgen) {
     LLVMContextDispose(cgen->Context);  
 }
 
-void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, bool stop_at_ir) {
+void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, enum compiler_options flg, const char *fname) {
     log_c("BEGIN CODEGEN");
 
     log_c("Type of root node: %s", ast_get_type_str(node_at(parser, pos)));
@@ -498,22 +498,35 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, 
     }
     LLVMRunPassManager(cgen->MPM, cgen->Module);
 
-    if(stop_at_ir) {
-        char *error = NULL;
-        if (LLVMPrintModuleToFile(cgen->Module, "output.ll", &error) != 0) {
-            fprintf(stderr, "Error writing module to file: %s\n", error);
+    char *error = NULL;
+    char *suffix = (char*)fname + strlen(fname) - 4;
+    char *ir;
+    LLVMMemoryBufferRef mem_buf;
+
+    switch (flg) {
+    break; case OPT_EXEC:
+        strcpy(suffix, "imm");
+	if (LLVMPrintModuleToFile(cgen->Module, fname, &error) != 0) {
+	    fprintf(stderr, "Error writing module to file: %s\n", error);
+	    LLVMDisposeMessage(error);
+	}
+        strcpy(suffix, "asm");
+        if (LLVMTargetMachineEmitToFile(cgen->target_machine, cgen->Module, fname,
+                                     LLVMAssemblyFile, &error)) {
+            fprintf(stderr, "Failed to emit assembly: %s\n", error);
             LLVMDisposeMessage(error);
         }
-    } else {
-        char *error = NULL;
-        if (LLVMTargetMachineEmitToFile(cgen->target_machine, cgen->Module, "output.s", 
-                                     LLVMAssemblyFile, &error)) {
-        fprintf(stderr, "Failed to emit assembly: %s\n", error);
-        LLVMDisposeMessage(error);
-        }
-    }
+    break; case OPT_IR:
+        ir = LLVMPrintModuleToString(cgen->Module);
 
-    log_c("END CODEGEN");
+        printf("%s", ir);
+        LLVMDisposeMessage(ir);
+    break; case OPT_ASM:
+
+        LLVMTargetMachineEmitToMemoryBuffer(cgen->target_machine, cgen->Module, LLVMObjectFile, &error, &mem_buf);
+        fwrite(LLVMGetBufferStart(mem_buf), 1, LLVMGetBufferSize(mem_buf), stdout);
+        LLVMDisposeMemoryBuffer(mem_buf);
+    }
 }
 
 LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *parser, Unused ast_node_pos pos){
@@ -524,7 +537,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         return LLVMGetUndef(LLVMInt16Type());
     }
 
-    LLVMBasicBlockRef tmp = LLVMGetInsertBlock(cgen->IRBuilder);
+    LLVMBasicBlockRef __attribute__((unused)) tmp = LLVMGetInsertBlock(cgen->IRBuilder);
     log_c("I am at block %s", LLVMGetBasicBlockName(tmp));
 
     #define GENERATE_CHLD(temp) for (; ast_is_child(it); it = ast_next_child(it)) \
@@ -770,8 +783,8 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         if(!test_func) {
             log_c("Function %.*s does not exist, creating it", UNSLICE(func_name));
             test_func = LLVMAddFunction(cgen->Module, func_name.ptr, func_type);
-            size_t leng;
-            const char* func_name_cstr = LLVMGetValueName2(test_func, &leng);
+            size_t  __attribute__((unused)) leng;
+            const char __attribute__((unused)) *func_name_cstr = LLVMGetValueName2(test_func, &leng);
             log_c("Created function %.*s", (int)leng, func_name_cstr);
             LLVMSetFunctionCallConv(test_func, LLVMCCallConv);
             LLVMAddAttributeAtIndex(test_func, LLVMAttributeFunctionIndex, cgen->stack_align);
