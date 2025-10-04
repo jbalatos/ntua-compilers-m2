@@ -60,6 +60,7 @@ extern void        st_push_arg(sym_table_t *this, st_type_t *func, st_type_t arg
 extern void        st_push_def(sym_table_t *this, st_type_t def);
 extern void        st_push_scope(sym_table_t *this, st_type_t def);
 extern bool        st_push_symbol(sym_table_t *this, uint16_t name, st_type_t type);
+extern void        st_rename_scope(sym_table_t *this, st_type_t def);
 extern bool        st_scope_has_symbol(const sym_table_t *this, uint16_t name);
 #pragma endregion
 
@@ -110,6 +111,9 @@ static struct {
 	st_type_t func;
 	st_type_t args[2];
 } st_lib_types[] = { DANA_LIBRARY };
+#undef INT
+#undef BYTE
+#undef STRING
 #undef PROC
 #undef IFUNC
 #undef BFUNC
@@ -235,6 +239,12 @@ st_push_symbol (sym_table_t *this, uint16_t name, st_type_t type)
 	return true;
 }
 
+inline void
+st_rename_scope (sym_table_t *this, st_type_t def)
+{
+	stack_top(this->defs) = def;
+}
+
 inline bool __attribute__((pure))
 st_scope_has_symbol (const sym_table_t *this, uint16_t name)
 {
@@ -322,7 +332,7 @@ _sem_check (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 				);
 	break; case AST_RETURN:
 		lhs = sem_eval_expr(this, st, it.pos);
-		rhs = st_get_last_def(st, DTYPE_FUNC);
+		rhs = st_get_last_def(st, DTYPE_FUNC); rhs.type &= ~DTYPE_FUNC;
 		throw_if(!sem_type_eq(this, st, lhs, rhs), bool,
 				PAR_FSTR "return value of type %s cannot be casted to expected type %s",
 				PAR_FPOS(this, node),
@@ -429,26 +439,31 @@ sem_check_def (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 	size_t i;
 
 	if ((func = st_get_symbol(st, node.name)).type != DTYPE_NONE) {
-		/* check declaration - definition matching */
+		st_push_scope(st, func);
+		/* check declaration - definition matching and register args */
 		for (i = 0; POS_CMP(it.pos, par_func_locals(this, pos));
-				it = ast_next_child(it), ++i)
+				it = ast_next_child(it), ++i) {
+			try(_sem_check(this, st, it.pos), PAR_FSTR, PAR_FPOS(this, node));
 			throw_if(!sem_type_eq(this, st, sem_get_node_type(this, st, *it.node),
 						st_get_arg(st, POS_ADV(func.args.begin, i))),
 					bool,
 					PAR_FSTR "type mismatch between declaration and definition of function %.*s",
 					PAR_FPOS(this, *it.node),
 					UNSLICE(par_get_name(this, *it.node)));
+		}
 		log("previously declared func: OK");
 	} else {
-		/* create func type */
+		/* create func type and register args */
 		func = sem_get_node_type(this, st, node);
 		func.args.begin = (st_arg_pos){ arr_ulen(st->args) };
+		st_push_scope(st, func);
 		/* arguments */
 		for (; POS_CMP(it.pos, par_func_locals(this, pos));
 					it = ast_next_child(it)) {
 			try(_sem_check(this, st, it.pos), PAR_FSTR, PAR_FPOS(this, node));
 			st_push_arg(st, &func, sem_get_node_type(this, st, *it.node));
 		}
+		st_rename_scope(st, func);
 		printf("--- Function def: %.*s: %s(", UNSLICE(par_get_name(this, node)),
 				sem_get_type_str(func));
 		for (st_arg_pos it = func.args.begin;
@@ -457,7 +472,8 @@ sem_check_def (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 			printf("%s, ", sem_get_type_str(st_get_arg(st, it)));
 		printf(")\n");
 	}
-	st_push_scope(st, func);
+
+	/* register function in scope */
 	st_push_symbol(st, node.name, func);
 	/* local defs */
 	for (; POS_CMP(it.pos, par_func_body(this, pos)); it = ast_next_child(it))
@@ -465,6 +481,8 @@ sem_check_def (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 	/* body */
 	try(_sem_check(this, st, it.pos), PAR_FSTR, PAR_FPOS(this, node));
 	st_pop_scope(st);
+	/* push function for subsequent use */
+	st_push_symbol(st, node.name, func);
 
 	return true;
 }
@@ -482,7 +500,7 @@ sem_check_cond (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 			cond = try_typed(sem_eval_expr(this, st, it.pos), bool,
 					PAR_FSTR "in condition",
 					PAR_FPOS(this, node));
-			try(cond.type == DTYPE_BOOL,
+			try(sem_type_eq(this, st, cond, DTYPE_INLINE(DTYPE_BOOL)),
 					PAR_FSTR "condition must be boolean",
 					PAR_FPOS(this, node));
 		} else {
@@ -530,7 +548,7 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 					PAR_FPOS(this, *lhs.node));
 			/* TODO: add subscript range checking */
 			/* move to next type */
-			arr_type = arr_type.is_position
+			arr_type = arr_type.is_position && par_get_type(this, arr_type.pos).length > 1
 				? DTYPE_POS(this, POS_ADV(arr_type.pos, 1))
 				: DTYPE_INLINE(DTYPE_ARR_TYPE(arr_type));
 		}
@@ -574,7 +592,7 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 				PAR_FSTR "RHS operand of operator %s is not numeric type",
 				PAR_FPOS(this, *rhs.node),
 				ast_get_type_str(node));
-		throw_if(ltype.type != rtype.type, st_type_t,
+		throw_if(!sem_type_eq(this, st, ltype, rtype), st_type_t,
 				PAR_FSTR "operand type mismatch for operator %s",
 				PAR_FPOS(this, *rhs.node),
 				ast_get_type_str(node));
@@ -590,7 +608,7 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 
 	case AST_BOOL_NOT:
 		ltype = sem_eval_expr(this, st, lhs.pos);
-		throw_if(sem_get_node_type(this, st, *lhs.node).type != DTYPE_BOOL,
+		throw_if(sem_get_node_type(this, st, *lhs.node).type != DTYPE_BOOL && sem_get_node_type(this, st, *lhs.node).type != DTYPE_BYTE,
 				st_type_t,
 				PAR_FSTR "operand of boolean not is not boolean",
 				PAR_FPOS(this, *lhs.node));
@@ -599,8 +617,8 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 	case AST_BOOL_AND ... AST_BOOL_OR:
 		ltype = sem_eval_expr(this, st, lhs.pos);
 		rtype = sem_eval_expr(this, st, rhs.pos);
-		throw_if(ast_is_child(rhs), st_type_t,
-				PAR_FSTR "operator %s expected 1 operand, got 2",
+		throw_if(!ast_is_child(rhs), st_type_t,
+				PAR_FSTR "operator %s expected 2 operand, got 1",
 				PAR_FPOS(this, *rhs.node),
 				ast_get_type_str(node));
 		throw_if(ltype.type != DTYPE_BOOL, st_type_t,
@@ -720,7 +738,7 @@ sem_type_eq (const parser_t *this, const sym_table_t *st, st_type_t a, st_type_t
 		return true;
 	}
 	if ((da.type == DTYPE_BYTE && db.type == DTYPE_BOOL) ||
-			(da.type == DTYPE_BYTE && db.type == DTYPE_BOOL))
+			(da.type == DTYPE_BOOL && db.type == DTYPE_BYTE))
 		return true;
 	return da.type == db.type;
 }

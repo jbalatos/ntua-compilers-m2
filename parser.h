@@ -241,6 +241,7 @@ dtype_get_type_str (enum dtype type)
 	switch (type) {
 	break; case DTYPE_INT : return "int";
 	break; case DTYPE_BYTE: return "byte";
+	break; case DTYPE_BOOL: return "bool";
 	break; case DTYPE_INT  | DTYPE_ARRAY: return "int-array";
 	break; case DTYPE_BYTE | DTYPE_ARRAY: return "byte-array";
 	break; case DTYPE_INT  | DTYPE_VAR_ARRAY: return "int-var-array";

@@ -53,6 +53,10 @@ typedef struct {
     LLVMAttributeRef stack_align;
 
     LLVMPassManagerRef FPM, MPM;
+
+    char * target_triple, * data_layout_str;
+    LLVMTargetRef target;
+    LLVMTargetMachineRef target_machine;
     
 
     LLVMTypeRef i1, i8, i16, i32, i64;
@@ -103,10 +107,10 @@ extern LLVMValueRef c8(char c);
 extern LLVMValueRef c16(int16_t i);
 
 #define CGEN_CLEANUP __attribute__((cleanup(cgen_destroy)))
-extern cgen_t cgen_create(const parser_t * parser);
+extern cgen_t cgen_create(const parser_t * parser, int opt_level);
 extern void cgen_destroy(cgen_t *cgen);
 
-extern void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos);
+extern void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, bool stop_at_ir);
 extern LLVMValueRef _cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos);
 
 extern cgen_var_t _cgen_get_var_types(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, bool is_arg);
@@ -267,23 +271,38 @@ find_loop (LoopInfo **h, int label) {
 #define c8(c) LLVMConstInt(LLVMInt8TypeInContext(cgen->Context), (uint64_t)(c), false)
 #define c16(i) LLVMConstInt(LLVMInt16TypeInContext(cgen->Context), (uint64_t)(i), false)
 
-cgen_t cgen_create(const parser_t * parser) {
+cgen_t cgen_create(const parser_t * parser, int opt_level) {
     log_c("INITIALIZING CODEGEN");
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
     LLVMInitializeNativeAsmParser();
+
+    LLVMInitializeAllTargetInfos();
+    LLVMInitializeAllTargets();
+    LLVMInitializeAllTargetMCs();
+    LLVMInitializeAllAsmParsers();
+    LLVMInitializeAllAsmPrinters();
     
 
     LLVMContextRef context = LLVMContextCreate();
+    LLVMModuleRef module = LLVMModuleCreateWithNameInContext("my_module", context);
+
 
     cgen_t ret = {
 	/* context and module */
         .Context = context,
-        .Module = LLVMModuleCreateWithNameInContext("my_module", context),
+        .Module = module,
         .IRBuilder = LLVMCreateBuilderInContext(context),
        
+    /* optimizations */
+        .FPM = LLVMCreateFunctionPassManagerForModule(module),
+        .MPM = LLVMCreatePassManager(),
+        
+    /* target_triple */
+        .target_triple = LLVMGetDefaultTargetTriple(),
 
-        // AND/OR set alignstack on your calling functions
+
+    /* alignment */
         .stack_align = LLVMCreateEnumAttribute(
             context,
             LLVMGetEnumAttributeKindForName("alignstack", 10),
@@ -299,10 +318,52 @@ cgen_t cgen_create(const parser_t * parser) {
 	    .cg_st = cg_table_create(),
     };
 
+    /*Extra initializations*/
     LLVMSetDataLayout(ret.Module, "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128");
+
     /* global scope */
     stack_push(ret.block_stack, (BlockContext){0});
     stack_push(ret.loop_stack, (LoopInfo){0});
+
+    /* optimizations */
+    if(opt_level) {
+        LLVMAddInstructionCombiningPass(ret.FPM);
+        LLVMAddReassociatePass(ret.FPM);
+        LLVMAddGVNPass(ret.FPM);
+        LLVMAddCFGSimplificationPass(ret.FPM);
+        LLVMAddPromoteMemoryToRegisterPass(ret.FPM);
+
+        LLVMAddCalledValuePropagationPass(ret.MPM);
+        LLVMAddInstructionCombiningPass(ret.MPM);
+        LLVMAddPromoteMemoryToRegisterPass(ret.MPM);
+        LLVMAddGVNPass(ret.MPM);
+        LLVMAddCFGSimplificationPass(ret.MPM);
+        LLVMAddDeadStoreEliminationPass(ret.MPM);
+    }
+    
+    LLVMInitializeFunctionPassManager(ret.FPM);
+
+    /* Target */
+    char *error = NULL;
+    if (LLVMGetTargetFromTriple(ret.target_triple, &(ret.target), &error)) {
+        fprintf(stderr, "Error: %s\n", error);
+        LLVMDisposeMessage(error);
+        throw(cgen_t, "Error creating target machine");
+    }
+    ret.target_machine = LLVMCreateTargetMachine(
+        ret.target,
+        ret.target_triple,
+        "generic",
+        "",
+        LLVMCodeGenLevelDefault,
+        LLVMRelocDefault,
+        LLVMCodeModelDefault
+    );
+    LLVMSetTarget(module, ret.target_triple);
+    LLVMTargetDataRef data_layout = LLVMCreateTargetDataLayout(ret.target_machine);
+    ret.data_layout_str = LLVMCopyStringRepOfTargetData(data_layout);
+    LLVMSetDataLayout(module, ret.data_layout_str);
+
 
     /* base library */
     #define INT    ret.i64
@@ -358,18 +419,26 @@ cgen_t cgen_create(const parser_t * parser) {
 }
 
 void cgen_destroy(cgen_t *cgen) {
-    LLVMDisposeBuilder(cgen->IRBuilder);
-    LLVMDisposeModule(cgen->Module);
-    LLVMContextDispose(cgen->Context);  
+
+    LLVMFinalizeFunctionPassManager(cgen->FPM);
+    LLVMDisposePassManager(cgen->FPM);
+    LLVMDisposePassManager(cgen->MPM);
+
+    LLVMDisposeMessage(cgen->target_triple);
+    LLVMDisposeMessage(cgen->data_layout_str);
 
     cg_table_destroy(&(cgen->cg_st));
     ListFree(cgen->scope);
     stack_free(cgen->block_stack);
     stack_free(cgen->loop_stack);
     hm_free(cgen->base_lib);
+
+    LLVMDisposeBuilder(cgen->IRBuilder);
+    LLVMDisposeModule(cgen->Module);
+    LLVMContextDispose(cgen->Context);  
 }
 
-void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos) {
+void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, bool stop_at_ir) {
     log_c("BEGIN CODEGEN");
 
     log_c("Type of root node: %s", ast_get_type_str(node_at(parser, pos)));
@@ -422,11 +491,26 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos) 
 
     cgen_verify_module(cgen);
 
+    LLVMValueRef function = LLVMGetFirstFunction(cgen->Module);
+    while (function) {
+        LLVMRunFunctionPassManager(cgen->FPM, function);
+        function = LLVMGetNextFunction(function);
+    }
+    LLVMRunPassManager(cgen->MPM, cgen->Module);
 
-    char *error = NULL;
-    if (LLVMPrintModuleToFile(cgen->Module, "output.ll", &error) != 0) {
-        fprintf(stderr, "Error writing module to file: %s\n", error);
+    if(stop_at_ir) {
+        char *error = NULL;
+        if (LLVMPrintModuleToFile(cgen->Module, "output.ll", &error) != 0) {
+            fprintf(stderr, "Error writing module to file: %s\n", error);
+            LLVMDisposeMessage(error);
+        }
+    } else {
+        char *error = NULL;
+        if (LLVMTargetMachineEmitToFile(cgen->target_machine, cgen->Module, "output.s", 
+                                     LLVMAssemblyFile, &error)) {
+        fprintf(stderr, "Failed to emit assembly: %s\n", error);
         LLVMDisposeMessage(error);
+        }
     }
 
     log_c("END CODEGEN");
@@ -468,8 +552,10 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         return c8(node.pl_data.ch);
     break; case AST_STRING:
         log_c("Generating string");
-        lhs = LLVMBuildGlobalStringPtr(cgen->IRBuilder, par_get_text(parser, node.pl_data.str), "str");
+        const char * new_str = processEscapeSequences(par_get_text(parser, node.pl_data.str), NULL);
+        lhs = LLVMBuildGlobalStringPtr(cgen->IRBuilder, new_str, "str");
         LLVMSetAlignment(lhs, 16);
+        arr_free(new_str);
         return lhs;
     break; case AST_NAME: 
         log_c("Generating name %.*s", UNSLICE(par_get_name(parser, node)));
@@ -532,19 +618,23 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
     break; case AST_BOOL_AND:
         log_c("Generating boolean and");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
+        if(LLVMTypeOf(lhs)==cgen->i8) LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), lhs, "bool_cond");
         it = ast_next_child(it);
         rhs = _cgen_generate_code(cgen, parser, it.pos);
+        if(LLVMTypeOf(rhs)==cgen->i8) LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), rhs, "bool_cond");
         return LLVMBuildAnd(cgen->IRBuilder, lhs, rhs, "andtmp");
     break; case AST_BOOL_OR:
         log_c("Generating boolean or");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
+        if(LLVMTypeOf(lhs)==cgen->i8) LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), lhs, "bool_cond");
         it = ast_next_child(it);
         rhs = _cgen_generate_code(cgen, parser, it.pos);
+        if(LLVMTypeOf(rhs)==cgen->i8) LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), rhs, "bool_cond");
         return LLVMBuildOr(cgen->IRBuilder, lhs, rhs, "ortmp");
     break; case AST_BOOL_NOT:
         log_c("Generating boolean not");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
-        return LLVMBuildNot(cgen->IRBuilder, lhs, "nottmp");
+        return LLVMBuildICmp(cgen->IRBuilder, LLVMIntEQ, lhs, LLVMConstInt(LLVMTypeOf(lhs), 0, false), "nottmp");
     break; case AST_CMP_EQ:
         log_c("Generating cmp eq");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
@@ -1058,9 +1148,11 @@ LLVMValueRef _cgen_get_var_value(cgen_t *cgen, const parser_t *parser, ast_node_
             }
         break; case AST_STRING: 
             {
-            ptr = LLVMBuildGlobalStringPtr(cgen->IRBuilder, par_get_text(parser, node.pl_data.str), "str");
+            const char * new_str = processEscapeSequences(par_get_text(parser, node.pl_data.str), NULL);
+            ptr = LLVMBuildGlobalStringPtr(cgen->IRBuilder, new_str, "str");
             LLVMSetAlignment(ptr, 16);
             var_type = LLVMPointerType(cgen->i8, 0);
+            arr_free(new_str);
             }
         break; default:
             throw(LLVMValueRef, PAR_FSTR "Invalid node for variable", PAR_FPOS(parser, node));
@@ -1106,7 +1198,7 @@ void cgen_verify_module(cgen_t *cgen) {
     char *error = NULL;
     LLVMVerifyModule(cgen->Module, LLVMAbortProcessAction, &error);
     LLVMDisposeMessage(error);
-    LLVMDumpModule(cgen->Module);
+    //LLVMDumpModule(cgen->Module);
 }
 
 #pragma endregion

@@ -156,9 +156,9 @@ int main (int argc, char *argv[argc])
 	printf("\n");
 
 	printf("\n=== CODEGEN ===\n");
-	cgen_t CGEN_CLEANUP cgen = cgen_create(&parser);
+	cgen_t CGEN_CLEANUP cgen = cgen_create(&parser, 0);
 	printf("creation done\n");
-	cgen_generate_code(&cgen, &parser, root);
+	cgen_generate_code(&cgen, &parser, root, false);
 	printf("DONE\n");
 
 	return 0;
