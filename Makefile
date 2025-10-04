@@ -6,7 +6,7 @@ endif
 
 CC = clang
 CFLAGS=-Wall -Wextra -Werror -g -std=gnu17 -fblocks -fPIE -Wno-unknown-pragmas `$(LLVMCONFIG) --cflags`
-LDLIBS=-lBlocksRuntime `$(LLVMCONFIG) --ldflags --system-libs --libs all`
+LDLIBS=-lBlocksRuntime -lstdc++ -lpthread `$(LLVMCONFIG) --ldflags --system-libs --libs all`
 SRC = main.c
 DIST = main
 
