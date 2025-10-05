@@ -488,7 +488,7 @@ cgen_t cgen_create(const parser_t * parser, int opt_level) {
     #define BYTE   ret.i8
     #define STRING LLVMPointerType(BYTE, 0)
     #define CG_ARGC_(_1, _2, n, ...) n
-    #define CG_ARGC(...) CG_ARGC_(__VA_ARGS__, 2, 1, 0)
+    #define CG_ARGC(...) CG_ARGC_(__VA_ARGS__ __VA_OPT__(,) 2, 1, 0)
     #define PROC(name, ...)  { .ret = LLVMVoidTypeInContext(context), .args = { __VA_ARGS__ }, .count = CG_ARGC(__VA_ARGS__) },
     #define IFUNC(name, ...) { .ret = ret.i16, .args = { __VA_ARGS__ }, .count = 0 },
     #define BFUNC(name, ...) { .ret = BYTE, .args = { __VA_ARGS__ }, .count = CG_ARGC(__VA_ARGS__) },
@@ -653,11 +653,9 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, 
         }
     break; case OPT_IR:
         ir = LLVMPrintModuleToString(cgen->Module);
-
         printf("%s", ir);
         LLVMDisposeMessage(ir);
     break; case OPT_ASM:
-
         LLVMTargetMachineEmitToMemoryBuffer(cgen->target_machine, cgen->Module, LLVMObjectFile, &error, &mem_buf);
         fwrite(LLVMGetBufferStart(mem_buf), 1, LLVMGetBufferSize(mem_buf), stdout);
         LLVMDisposeMemoryBuffer(mem_buf);

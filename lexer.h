@@ -384,7 +384,7 @@ lex_get_char (const lexer_t *this, lex_token_t tok)
 		case '"': return '"';
 		default: _assert(false, "Invalid character passed scan");
 		}
-	case 5:
+	case 6:
 		buf[0] = sl.ptr[3]; buf[1] = sl.ptr[4];
 		return _parse_hex(buf);
 	default: _assert(false, "Invalid character passed scan");

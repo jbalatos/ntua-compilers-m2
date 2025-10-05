@@ -11,8 +11,12 @@
 #define LENGTH(x) (sizeof(x)/sizeof(x[0]))
 
 #pragma region DEBUGGING
-#define dbg(x, fmt) \
+#ifdef ENABLE_DEBUG
+#	define dbg(x, fmt) \
 	printf("DBG:\t%s:%d\t" #x ":\t" fmt "\n", __FILE__, __LINE__, x)
+#else
+#	define dbg(x, fmt) ((void)(x), (void)(fmt))
+#endif
 #define _assert(cond, fmt, ...) ({                                          \
 		if (!(cond)) {                                              \
 			printf("ASSERT\t%s:%d\t" fmt "\n",                  \
