@@ -41,6 +41,7 @@ typedef struct {
 } cgen_func_t;
 
 typedef struct { cgen_func_t func; LLVMValueRef frame_ptr; } cg_func_call_t;
+typedef struct { LLVMValueRef frame; LLVMTypeRef frame_type; } cgen_typed_frame_t;
 typedef struct { uint16_t frame_depth; uint16_t frame_pos; } cg_ext_var_t;
 
 typedef struct { uint16_t key; cgen_var_t value; } cg_cell_t;
@@ -142,7 +143,7 @@ extern LLVMValueRef _cgen_get_array_value(cgen_t *cgen, const parser_t *parser, 
 extern LLVMValueRef _cgen_get_array_at_ptr(cgen_t *cgen, const parser_t *parser, ast_node_pos pos);
 extern LLVMTypeRef _cgen_get_array_base_type(cgen_t *cgen, int name); 
 extern LLVMValueRef _cgen_call_base_lib(cgen_t *cgen, int name);
-extern LLVMValueRef _cgen_get_frame_ptr(cgen_t * cgen, uint16_t depth);
+extern cgen_typed_frame_t _cgen_get_frame_ptr(cgen_t * cgen, uint16_t depth);
 
 extern slice_char_t _get_current_function(cgen_t *cgen);
 extern slice_char_t _cgen_push_function(cgen_t *cgen, uint32_t name);
@@ -205,7 +206,7 @@ cg_get_symbol (cgen_t *cgen, uint16_t name)
 {
     ptrdiff_t idx;
     cg_scope_t *u = cgen->cg_st.scopes;
-    LLVMValueRef par_frame;
+    cgen_typed_frame_t par_frame;
     uint16_t depth=0;
     cgen_var_t ret;
 
@@ -225,8 +226,8 @@ cg_get_symbol (cgen_t *cgen, uint16_t name)
     par_frame = _cgen_get_frame_ptr(cgen, depth);
 
     ret.alloca = LLVMBuildStructGEP2(
-        cgen->IRBuilder, LLVMTypeOf(par_frame),
-        par_frame, ret.frame_pos, "ptr_var"
+        cgen->IRBuilder, par_frame.frame_type,
+        par_frame.frame, ret.frame_pos, "ptr_var"
     );
 
     return ret;
@@ -263,7 +264,7 @@ cg_get_func (cgen_t *cgen, uint16_t name) {
     }
 	if(idx == -1) return (cg_func_call_t){0};
 
-    par_frame = _cgen_get_frame_ptr(cgen, depth-1);
+    par_frame = _cgen_get_frame_ptr(cgen, depth-1).frame;
     ret.frame_ptr = par_frame; ret.func = ret_func;
 
     return(ret);
@@ -490,7 +491,7 @@ cgen_t cgen_create(const parser_t * parser, int opt_level) {
     #define CG_ARGC_(_1, _2, n, ...) n
     #define CG_ARGC(...) CG_ARGC_(__VA_ARGS__ __VA_OPT__(,) 2, 1, 0)
     #define PROC(name, ...)  { .ret = LLVMVoidTypeInContext(context), .args = { __VA_ARGS__ }, .count = CG_ARGC(__VA_ARGS__) },
-    #define IFUNC(name, ...) { .ret = ret.i16, .args = { __VA_ARGS__ }, .count = 0 },
+    #define IFUNC(name, ...) { .ret = ret.i16, .args = { __VA_ARGS__ }, .count = CG_ARGC(__VA_ARGS__) },
     #define BFUNC(name, ...) { .ret = BYTE, .args = { __VA_ARGS__ }, .count = CG_ARGC(__VA_ARGS__) },
     struct {
         LLVMTypeRef ret;
@@ -837,10 +838,10 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         if(!func) {
             ptrdiff_t idx = hm_geti(cgen->base_lib, node.name);
             is_base_lib = ( idx != -1);
-            printf("result that I got from searching was %td when searching for id %d\n", idx, node.name);
+            //printf("result that I got from searching was %td when searching for id %d\n", idx, node.name);
             if(is_base_lib) {
                 func = LLVMGetNamedFunction(cgen->Module, cgen->base_lib[idx].value);
-                printf("name that I was searching was %s\n", cgen->base_lib[idx].value);
+                //printf("name that I was searching was %s\n", cgen->base_lib[idx].value);
             }
         }
             
@@ -946,7 +947,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         for (; POS_CMP(it.pos, par_func_body(parser, pos)) < 0;
 				it = ast_next_child(it)) {
                     if(it.node->type != AST_ARRAY && it.node->type != AST_INT && it.node->type != AST_BYTE) continue;
-                    cgen_var_t var = _cgen_get_var_types(cgen, parser, it.pos, true);
+                    cgen_var_t var = _cgen_get_var_types(cgen, parser, it.pos, false);
                     arr_push(locals_types, var.type);
             }
 
@@ -1044,7 +1045,24 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         cgen->block_term = NO_TERM;
         cgen->loop_to_check = 0;
 
-        if(!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(cgen->IRBuilder))) LLVMBuildRetVoid(cgen->IRBuilder);
+        if(!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(cgen->IRBuilder))) {
+            LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(cgen->IRBuilder));
+            LLVMTypeRef ret_type = LLVMGetReturnType(LLVMGlobalGetValueType(func));
+            if (LLVMGetTypeKind(ret_type) == LLVMIntegerTypeKind) {
+                unsigned bits = LLVMGetIntTypeWidth(ret_type);
+                if (bits == 16) {
+                    LLVMBuildRet(cgen->IRBuilder, c16(0));
+                } else if (bits == 8) {
+                    LLVMBuildRet(cgen->IRBuilder, c8(0));
+                } else {
+                    LLVMBuildRetVoid(cgen->IRBuilder);
+                }
+            } else if (LLVMGetTypeKind(ret_type) == LLVMVoidTypeKind) {
+                LLVMBuildRetVoid(cgen->IRBuilder);
+            } else {
+                LLVMBuildRetVoid(cgen->IRBuilder);
+            }
+        }
 
         LLVMVerifyFunction(test_func, LLVMPrintMessageAction);
 
@@ -1386,7 +1404,7 @@ LLVMValueRef _cgen_get_array_at_ptr(Unused cgen_t *cgen, Unused const parser_t *
     return ptr;
 }
 
-LLVMValueRef _cgen_get_frame_ptr(cgen_t * cgen, uint16_t depth) {
+cgen_typed_frame_t _cgen_get_frame_ptr(cgen_t * cgen, uint16_t depth) {
     LLVMValueRef frame_ptr = cgen->curr_frame;
     LLVMTypeRef* cur_type = cgen->cg_st.frame_types;
     
@@ -1424,7 +1442,7 @@ LLVMValueRef _cgen_get_frame_ptr(cgen_t * cgen, uint16_t depth) {
         "target_frame"
     );
 
-    return typed_target;
+    return (cgen_typed_frame_t){.frame = typed_target, .frame_type = *cur_type};
 }
 
 
