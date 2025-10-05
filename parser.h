@@ -1144,19 +1144,15 @@ parse_local_defs (parser_t *this)
 	ast_node_pos tmp;
 	lex_token_t tok;
 
-	printf("Begin parsing local defs\n");
 	while (true) {
 		switch ((tok = par_peek_token(this)).type) {
 		case DANA_KW_DECL:
-			printf("local def decl\n");
 		case DANA_KW_DEF:
-			printf("local def def\n");
 			tmp = try_typed(parse_decl(this, tok.type), ret_size,
 					PAR_FSTR, PAR_FPOS(this, tok));
 			length += node_at(this, tmp).length;
 			continue;
 		case DANA_KW_VAR:
-			printf("local def var\n");
 			par_pop_token(this);
 			length += try(parse_var(this, DANA_KW_IS),
 					PAR_FSTR, PAR_FPOS(this, tok)).v;
@@ -1165,7 +1161,6 @@ parse_local_defs (parser_t *this)
 		}
 		break;
 	}
-	printf("local def done\n");
 
 	return (ret_size){ .ok = 1, .v = length };
 }
