@@ -23,16 +23,31 @@
 
 #pragma region TYPES
 
+typedef struct {uint16_t name; LLVMTypeRef type;} cgen_extra_arg_t;
+
 typedef struct {
     LLVMTypeRef type;
     LLVMValueRef alloca;
     LLVMTypeRef ptr_type;
     LLVMTypeRef element_type;
+    uint16_t frame_pos;
+    bool is_ref;
 } cgen_var_t;
+
+typedef struct {
+    LLVMTypeRef type;
+    LLVMValueRef alloca;
+    uint16_t par_func;
+} cgen_func_t;
+
+typedef struct { cgen_func_t func; LLVMValueRef frame_ptr; } cg_func_call_t;
+typedef struct { uint16_t frame_depth; uint16_t frame_pos; } cg_ext_var_t;
 
 typedef struct { uint16_t key; cgen_var_t value; } cg_cell_t;
 typedef cg_cell_t  *cg_scope_t;
-typedef struct {cg_scope_t *scopes;} cg_table_t;
+typedef struct { uint16_t key; cgen_func_t value; } cg_fcell_t;
+typedef cg_fcell_t *cg_fscope_t;
+typedef struct { cg_scope_t *scopes; cg_fscope_t *fscopes; LLVMTypeRef *frame_types; } cg_table_t;
 
 typedef struct {
     LLVMValueRef function;
@@ -61,6 +76,8 @@ typedef struct {
 
     LLVMTypeRef i1, i8, i16, i32, i64;
 
+    LLVMValueRef curr_frame;
+
     cg_table_t cg_st;
     string_list scope;
 
@@ -71,7 +88,8 @@ typedef struct {
 
     enum termination {NO_TERM = 0, CG_RET, CG_BREAK, CG_CONT} block_term;
     int loop_to_check;
-
+    int curr_func;
+    
     
 
 } cgen_t;
@@ -90,15 +108,19 @@ typedef struct {
 
 #pragma region SYMBOL TABLE DECLARATIONS
 #define CG_CLEANUP __attribute__((cleanup(cg_table_destroy)))
-extern cg_table_t cg_table_create(void);
+extern cg_table_t cg_table_create(LLVMContextRef ctx);
 extern void        cg_table_destroy(cg_table_t *this);
 #define cg_emplace_symbol(this, name, decl...) \
 	cg_put_symbol(this, name, (cgen_var_t{ decl }))
-extern cgen_var_t cg_get_symbol(const cg_table_t *this, uint16_t name);
-extern void        cg_pop_scope(cg_table_t *this);
-extern void        cg_push_scope(cg_table_t *this);
-extern bool        cg_put_symbol(cg_table_t *this, uint16_t name, cgen_var_t info);
-extern bool        cg_scope_has(const cg_table_t *this, uint16_t name);
+extern cgen_var_t       cg_get_symbol(cgen_t *cgen, uint16_t name);
+extern cg_func_call_t   cg_get_func(cgen_t *cgen, uint16_t name);
+extern void             cg_pop_scope(cg_table_t *this);
+extern void             cg_push_scope(cg_table_t *this);
+extern bool             cg_put_symbol(cg_table_t *this, uint16_t name, cgen_var_t info);
+extern bool             cg_put_func(cg_table_t *this, uint16_t name, cgen_func_t info);
+extern void             cg_put_frame_type(cg_table_t *this, LLVMTypeRef type);
+extern bool             cg_scope_has(const cg_table_t *this, uint16_t name);
+extern bool             cg_func_exists (const cg_table_t *this, uint16_t name);
 #pragma endregion
 
 #pragma region CODEGEN DECLARATIONS
@@ -120,7 +142,7 @@ extern LLVMValueRef _cgen_get_array_value(cgen_t *cgen, const parser_t *parser, 
 extern LLVMValueRef _cgen_get_array_at_ptr(cgen_t *cgen, const parser_t *parser, ast_node_pos pos);
 extern LLVMTypeRef _cgen_get_array_base_type(cgen_t *cgen, int name); 
 extern LLVMValueRef _cgen_call_base_lib(cgen_t *cgen, int name);
-
+extern LLVMValueRef _cgen_get_frame_ptr(cgen_t * cgen, uint16_t depth);
 
 extern slice_char_t _get_current_function(cgen_t *cgen);
 extern slice_char_t _cgen_push_function(cgen_t *cgen, uint32_t name);
@@ -148,10 +170,12 @@ static const char* cgen_lib_names[] = { DANA_LIBRARY };
 #pragma region STACKS IMPLEMENTATIONS
 /*Symbol Table*/
 cg_table_t
-cg_table_create (void)
+cg_table_create (LLVMContextRef ctx)
 {
 	cg_table_t ret = {0};
 	stack_push(ret.scopes, (cg_scope_t){0});
+    stack_push(ret.fscopes, (cg_fscope_t){0});
+    stack_push(ret.frame_types, LLVMPointerType(LLVMInt8TypeInContext(ctx), 0));
 	return ret;
 }
 
@@ -159,20 +183,90 @@ void
 cg_table_destroy (cg_table_t *this)
 {
     for (cg_scope_t *next; !stack_empty(this->scopes); this->scopes = next) {
-	next = stack_next(this->scopes);
-	hm_free(*this->scopes);
-	stack_pop(this->scopes);
+        next = stack_next(this->scopes);
+        hm_free(*this->scopes);
+        stack_pop(this->scopes);
+    }
+
+    for (cg_fscope_t *next; !stack_empty(this->fscopes); this->fscopes = next) {
+        next = stack_next(this->fscopes);
+        hm_free(*this->fscopes);
+        stack_pop(this->fscopes);
+    }
+
+    for (LLVMTypeRef *next; !stack_empty(this->frame_types); this->frame_types = next) {
+        next = stack_next(this->frame_types);
+        stack_pop(this->frame_types);
     }
 }
 
 cgen_var_t
-cg_get_symbol (const cg_table_t *this, uint16_t name)
+cg_get_symbol (cgen_t *cgen, uint16_t name)
 {
     ptrdiff_t idx;
-	for (cg_scope_t *u = this->scopes; u; u = stack_next(u))
-		if ((idx = hm_geti(*u, name)) != -1)
+    cg_scope_t *u = cgen->cg_st.scopes;
+    LLVMValueRef par_frame;
+    uint16_t depth=0;
+    cgen_var_t ret;
+
+    if ((idx = hm_geti(*u, name)) != -1)
 			return (*u)[idx].value;
-	return (cgen_var_t){0};
+
+    depth = 1;
+    u = stack_next(u);
+    
+	for (; u; u = stack_next(u), depth++)
+		if ((idx = hm_geti(*u, name)) != -1) {
+            ret = (*u)[idx].value;
+            break;
+        }
+	if(idx == -1) return (cgen_var_t){0};
+
+    par_frame = _cgen_get_frame_ptr(cgen, depth);
+
+    ret.alloca = LLVMBuildStructGEP2(
+        cgen->IRBuilder, LLVMTypeOf(par_frame),
+        par_frame, ret.frame_pos, "ptr_var"
+    );
+
+    return ret;
+}
+
+cg_func_call_t
+cg_get_func (cgen_t *cgen, uint16_t name) {
+    cg_func_call_t ret;
+    cgen_func_t ret_func;
+    uint16_t depth = 0;
+    LLVMValueRef par_frame;
+
+    ptrdiff_t idx;
+    cg_fscope_t *u;
+	for (u = cgen->cg_st.fscopes; u; u = stack_next(u)) {
+		if ((idx = hm_geti(*u, name)) != -1){
+			ret_func = (*u)[idx].value;
+            break;
+        }
+        depth++;
+    }
+
+    if(idx == -1) return (cg_func_call_t){0};
+    if(ret_func.par_func == 0) return (cg_func_call_t){.func = ret_func, .frame_ptr = NULL};
+
+    u = stack_next(u);
+    depth++;
+
+    for (; u; u = stack_next(u)) {
+		if ((idx = hm_geti(*u, ret_func.par_func)) != -1){
+            break;
+        }
+        depth++;
+    }
+	if(idx == -1) return (cg_func_call_t){0};
+
+    par_frame = _cgen_get_frame_ptr(cgen, depth-1);
+    ret.frame_ptr = par_frame; ret.func = ret_func;
+
+    return(ret);
 }
 
 inline void
@@ -180,12 +274,22 @@ cg_pop_scope (cg_table_t *this)
 {
     hm_free(stack_top(this->scopes));
     stack_pop(this->scopes);
+    hm_free(stack_top(this->fscopes));
+    stack_pop(this->fscopes);
+    stack_pop(this->frame_types);
 }
 
 inline void
 cg_push_scope (cg_table_t *this)
 {
     stack_push(this->scopes, (cg_scope_t){0});
+    stack_push(this->fscopes, (cg_fscope_t) {0});
+    stack_push(this->frame_types, NULL);
+}
+
+inline void
+cg_put_frame_type (cg_table_t *this, LLVMTypeRef type) {
+    stack_top(this->frame_types) = type;
 }
 
 inline bool
@@ -197,9 +301,23 @@ cg_put_symbol (cg_table_t *this, uint16_t name, cgen_var_t info)
 }
 
 inline bool
+cg_put_func (cg_table_t *this, uint16_t name, cgen_func_t info)
+{
+	if (cg_scope_has(this, name)) return true;
+	hm_put(stack_top(this->fscopes), name, info);
+	return false;
+}
+
+inline bool
 cg_scope_has (const cg_table_t *this, uint16_t name)
 {   
     return hm_geti(stack_top(this->scopes), name) != -1;
+}
+
+inline bool
+cg_func_exists (const cg_table_t *this, uint16_t name)
+{   
+    return hm_geti(stack_top(this->fscopes), name) != -1;
 }
 
 /*Function Scopes*/
@@ -315,7 +433,7 @@ cgen_t cgen_create(const parser_t * parser, int opt_level) {
         .i32 = LLVMInt32TypeInContext(context),
         .i64 = LLVMInt64TypeInContext(context),
 	/* symbol table */
-	    .cg_st = cg_table_create(),
+	    .cg_st = cg_table_create(context),
     };
 
     /*Extra initializations*/
@@ -449,13 +567,26 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, 
     LLVMValueRef main_func = LLVMAddFunction(cgen->Module, "main", main_func_type);
     LLVMSetFunctionCallConv(main_func, LLVMCCallConv);
     LLVMAddAttributeAtIndex(main_func, LLVMAttributeFunctionIndex, cgen->stack_align);
+
+    LLVMTypeRef* tt = {0};
+    arr_push(tt, LLVMPointerType(cgen->i8, 0));
+    LLVMTypeRef frame_type = LLVMStructTypeInContext(cgen->Context, tt, 1, 0);
+    arr_free(tt);
     
 
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(cgen->Context, main_func, "entry");
     LLVMPositionBuilderAtEnd(cgen->IRBuilder, entry);
     block_push(&(cgen->block_stack), main_func, entry, 0);
+
+    LLVMValueRef frame = LLVMBuildAlloca(cgen->IRBuilder, frame_type, "func_frame");
+    LLVMSetAlignment(frame, 16);
+    
     _cgen_push_function_name(cgen, StrLit("main"));
     cg_push_scope(&(cgen->cg_st));
+    cg_put_frame_type(&(cgen->cg_st), frame_type);
+
+    cgen->curr_frame = frame;
+    cgen->curr_func = 0;
 
     _cgen_generate_code(cgen, parser, pos);
 
@@ -483,7 +614,11 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, 
     }
     LLVMTypeRef func_type = LLVMGlobalGetValueType(func);
     log_c("Calling initial function");
-    LLVMBuildCall2(cgen->IRBuilder, func_type, func, NULL, 0, "");
+    LLVMValueRef * tmp;
+    arr_init(tmp);
+    arr_push(tmp, frame);
+    LLVMBuildCall2(cgen->IRBuilder, func_type, func, tmp, 1, "");
+    arr_free(tmp);
 
     log_c("Building return");
 
@@ -692,13 +827,13 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         log_c("Generating function/procedure call");
         bool is_base_lib = false;
         LLVMValueRef func = NULL;
-        cgen_var_t sym = cg_get_symbol(&(cgen->cg_st), node.name);
+        cg_func_call_t sym = cg_get_func(cgen, node.name);
         //slice_char_t STR_CLEANUP node_name = str_from_number(node.name);
 	    //slice_char_t func_name = str_append(_get_current_function(cgen), node_name, .sep = StrLit("_"), .c_str = true);
         //LLVMValueRef func = LLVMGetNamedFunction(cgen->Module, func_name.ptr);
         //str_destroy(&func_name);
-        if(LLVMIsAFunction(sym.alloca)) {
-            func = sym.alloca;
+        if(LLVMIsAFunction(sym.func.alloca)) {
+            func = sym.func.alloca;
         }
 
         if(!func) {
@@ -722,7 +857,10 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         arr_setcap(arg_types, arg_count);
         LLVMGetParamTypes(func_type, arg_types);
 
-        for (size_t i=0; ast_is_child(it) && i<arg_count; it = ast_next_child(it), i++) {
+        size_t i = 0;
+        if(!is_base_lib) { arr_push(args, sym.frame_ptr); i=1; }
+
+        for (; ast_is_child(it) && i<arg_count; it = ast_next_child(it), i++) {
             if(LLVMGetTypeKind(arg_types[i]) == LLVMPointerTypeKind)
                 arg = try(_cgen_get_var_value(cgen, parser, it.pos, true), "while calling args");
             else
@@ -754,13 +892,20 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         {
         log_c("Generating function declaration/definition %s", ast_get_type_str(node));
 
-        LLVMTypeRef* arg_types;
+        LLVMTypeRef* arg_types, *locals_types;
         arr_init(arg_types);
+        arr_init(locals_types);
+        arr_push(arg_types, LLVMPointerType(cgen->i8, 0));
+        arr_push(locals_types, LLVMPointerType(cgen->i8, 0));
+
         log_c("getting arguments of function");
         for (; POS_CMP(it.pos, par_func_locals(parser, pos)) < 0;
 				it = ast_next_child(it)) {
-			arr_push(arg_types, _cgen_get_var_types(cgen, parser, it.pos, true).type);
+                    cgen_var_t arg = _cgen_get_var_types(cgen, parser, it.pos, true);
+			        arr_push(arg_types, arg.type);
+                    arr_push(locals_types, arg.type);
         } 
+
         log_c("Getting return type of function");
         LLVMTypeRef ret_type;
         if(node.type == AST_DECL_PROC || node.type == AST_DEF_PROC)
@@ -789,20 +934,38 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
             LLVMSetFunctionCallConv(test_func, LLVMCCallConv);
             LLVMAddAttributeAtIndex(test_func, LLVMAttributeFunctionIndex, cgen->stack_align);
             log_c("Adding function to the symbol table");
-            cg_put_symbol(&(cgen->cg_st), node.name, (cgen_var_t){ .type = func_type, .alloca = test_func, .element_type = ret_type, .ptr_type=NULL});
+            cg_put_func(&(cgen->cg_st), node.name, (cgen_func_t){ .type = func_type, .alloca = test_func, .par_func = cgen->curr_func});
         }
 
         log_c("Function is done.");
         if(node.type <= AST_DECL_BYTE && node.type >= AST_DECL_PROC) {
             log_c("Function is only a declaration, returning.");
             arr_free(arg_types);
+            arr_free(locals_types);
             return test_func;
         }
+
+        for (; POS_CMP(it.pos, par_func_body(parser, pos)) < 0;
+				it = ast_next_child(it)) {
+                    if(it.node->type != AST_ARRAY && it.node->type != AST_INT && it.node->type != AST_BYTE) continue;
+                    cgen_var_t var = _cgen_get_var_types(cgen, parser, it.pos, true);
+                    arr_push(locals_types, var.type);
+            }
+
+        LLVMTypeRef frame_type = LLVMStructTypeInContext(cgen->Context, locals_types, arr_len(locals_types), 0);
+
         log_c("Function is a definition, generating body.");
+        uint16_t old_func = cgen->curr_func;
+        LLVMValueRef old_frame = cgen->curr_frame;
+        cgen->curr_func = node.name;
+
         cg_push_scope(&(cgen->cg_st));
+        cg_put_frame_type(&(cgen->cg_st), frame_type);
+
         log_c("Pushing scope name %.*s", UNSLICE(func_name));
         _cgen_push_function_name(cgen, func_name);
 
+        /* Changing current block to get into */
         LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(cgen->Context, test_func, "entry");
         LLVMPositionBuilderAtEnd(cgen->IRBuilder, entry);
 
@@ -811,27 +974,38 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         log_c("Pushed new block with counter %d", stack_top(cgen->block_stack).block_counter);
         log_c("Pushed block stack");
 
-        it = ast_get_child(parser, pos);
+        LLVMValueRef frame = LLVMBuildAlloca(cgen->IRBuilder, frame_type, "func_frame");
+        LLVMSetAlignment(frame, 16);
+        cgen->curr_frame = frame;
 
-        for (int k = 0; POS_CMP(it.pos, par_func_locals(parser, pos)) < 0;
+        arr_free(locals_types);
+
+        LLVMValueRef static_link = LLVMBuildStructGEP2(cgen->IRBuilder, frame_type, frame, 0, "sl");
+        LLVMBuildStore(cgen->IRBuilder, LLVMGetParam(test_func, 0), static_link);
+
+        it = ast_get_child(parser, pos);
+        uint16_t k;
+
+        for (k = 1; POS_CMP(it.pos, par_func_locals(parser, pos)) < 0;
 				it = ast_next_child(it), k++) {
 			LLVMValueRef param = LLVMGetParam(test_func, k);
             cgen_var_t types = (cgen_var_t){0};
+            if(it.node->type == AST_ARRAY) types = _cgen_get_var_types(cgen, parser, it.pos, true);
             types.type = arg_types[k];
+            types.frame_pos = k;
+            types.alloca = LLVMBuildStructGEP2(cgen->IRBuilder, frame_type, frame, k, "frame_var");
+            LLVMBuildStore(cgen->IRBuilder, param, types.alloca);
             switch(it.node->type) {
                 break; case AST_ARRAY: 
-                    types = _cgen_get_var_types(cgen, parser, it.pos, true);
-                    types.alloca = param;
+                    types.is_ref = true;
                 break; case AST_REF_BYTE: 
-                    types.alloca = param;
                     types.type = cgen->i8;
+                    types.is_ref = true;
                 case AST_REF_INT: 
-                    types.alloca = param;
                     types.type = cgen->i16;
+                    types.is_ref = true;
                 break; case AST_INT: case AST_BYTE:
-                    types.alloca = LLVMBuildAlloca(cgen->IRBuilder, types.type, "arg");
-                    LLVMSetAlignment(types.alloca, 16);
-                    LLVMBuildStore(cgen->IRBuilder, param, types.alloca);
+                    types.is_ref = false;
                 break; default:
                     throw(LLVMValueRef, PAR_FSTR "Invalid argument type", PAR_FPOS(parser, *it.node));
             }
@@ -853,13 +1027,14 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
                         break; case AST_INT: case AST_BYTE: case AST_ARRAY:
                             {                
                             cgen_var_t types = _cgen_get_var_types(cgen, parser, it.pos, false);
-                            types.alloca = LLVMBuildAlloca(cgen->IRBuilder, types.type, "local_def");
-                            LLVMSetAlignment(types.alloca, 16);
+                            types.alloca = LLVMBuildStructGEP2(cgen->IRBuilder, frame_type, frame, k, "local_def");
+                            types.frame_pos = k;
                             throw_if(cg_put_symbol(&(cgen->cg_st), it.node->name, types), LLVMValueRef,
                                 PAR_FSTR "redeclaration of variable %.*s",
                                 PAR_FPOS(parser, *it.node),
                                 UNSLICE(par_get_name(parser, *it.node))
                                 );
+                            k++;
                             }
                         break; default:
                             throw(LLVMValueRef, PAR_FSTR "Only variable and function declarations allowed before function body", PAR_FPOS(parser, *it.node));
@@ -874,6 +1049,9 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         if(!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(cgen->IRBuilder))) LLVMBuildRetVoid(cgen->IRBuilder);
 
         LLVMVerifyFunction(test_func, LLVMPrintMessageAction);
+
+        cgen->curr_frame = old_frame;
+        cgen->curr_func = old_func;
 
         _cgen_pop_function(cgen);
         log_c("Popped name scope");
@@ -1146,16 +1324,16 @@ LLVMValueRef _cgen_get_var_value(cgen_t *cgen, const parser_t *parser, ast_node_
     ast_node_t node = node_at(parser, pos);
     LLVMValueRef ptr;
     LLVMTypeRef var_type;
+    cgen_var_t var = cg_get_symbol(cgen, node.name);
 
     switch(node.type) {
         break; case AST_ARRAY_AT:
             {
             ptr = _cgen_get_array_at_ptr(cgen, parser, pos);
-            var_type = cg_get_symbol(&(cgen->cg_st), node.name).element_type;
+            var_type = var.element_type;
             }
         break; case AST_NAME:
             {
-            cgen_var_t var = cg_get_symbol(&(cgen->cg_st), node.name);
             ptr = var.alloca;
             var_type = var.type; 
             }
@@ -1172,6 +1350,7 @@ LLVMValueRef _cgen_get_var_value(cgen_t *cgen, const parser_t *parser, ast_node_
             return NULL;
     }
 
+    if(var.is_ref && node.type!=AST_ARRAY_AT) ptr = LLVMBuildLoad2(cgen->IRBuilder, LLVMPointerType(var_type, 0), ptr, "load_ptr");
     if(is_lvalue) return ptr;
     return LLVMBuildLoad2(cgen->IRBuilder, var_type, ptr, "load");
 }
@@ -1185,9 +1364,11 @@ LLVMValueRef _cgen_get_array_at_ptr(Unused cgen_t *cgen, Unused const parser_t *
     LLVMValueRef index = c16(0);
 
     cgen_var_t array;
-    LLVMValueRef ptr;
+    LLVMValueRef arr_ptr, ptr;
 
-    array = cg_get_symbol(&(cgen->cg_st), node.name);    
+    array = cg_get_symbol(cgen, node.name);  
+    
+    arr_ptr = LLVMBuildLoad2(cgen->IRBuilder, array.ptr_type, array.alloca, "arr_ptr");
     
     arr_init(indices);
 
@@ -1199,11 +1380,52 @@ LLVMValueRef _cgen_get_array_at_ptr(Unused cgen_t *cgen, Unused const parser_t *
             arr_push(indices, index);            
 	}
 
-    ptr = LLVMBuildInBoundsGEP2(cgen->IRBuilder, array.ptr_type, array.alloca, indices, arr_len(indices), "array_ptr");
+    ptr = LLVMBuildInBoundsGEP2(cgen->IRBuilder, array.ptr_type, arr_ptr, indices, arr_len(indices), "array_ptr");
 
     arr_free(indices);
    
     return ptr;
+}
+
+LLVMValueRef _cgen_get_frame_ptr(cgen_t * cgen, uint16_t depth) {
+    LLVMValueRef frame_ptr = cgen->curr_frame;
+    LLVMTypeRef* cur_type = cgen->cg_st.frame_types;
+    
+    // Follow static link chain upward
+    for (int i = 0; i < depth; i++) {
+        // Cast generic pointer to typed frame pointer
+        LLVMValueRef typed_frame = LLVMBuildBitCast(
+            cgen->IRBuilder, frame_ptr,
+            LLVMPointerType(*cur_type, 0),
+            "typed_frame"
+        );
+        
+        // Get static link (field 0) to go to parent frame
+        LLVMValueRef static_link_ptr = LLVMBuildStructGEP2(
+            cgen->IRBuilder, *cur_type,
+            typed_frame, 0, "static_link_ptr"
+        );
+        
+        // Load the static link
+        frame_ptr = LLVMBuildLoad2(
+            cgen->IRBuilder,
+            LLVMPointerType(cgen->i8, 0),
+            static_link_ptr,
+            "parent_frame"
+        );
+
+        cur_type = stack_next(cur_type);
+    }
+    
+    // Now frame_ptr points to the target frame
+    // Cast to correct type
+    LLVMValueRef typed_target = LLVMBuildBitCast(
+        cgen->IRBuilder, frame_ptr,
+        LLVMPointerType(*cur_type, 0),
+        "target_frame"
+    );
+
+    return typed_target;
 }
 
 

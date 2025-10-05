@@ -140,17 +140,20 @@ int main (int argc, char *argv[argc])
 	cgen_t CGEN_CLEANUP cgen = cgen_create(&parser, 0);
 	cgen_generate_code(&cgen, &parser, root, args.flg, args.input);
 
+	slice_char_t STR_CLEANUP cmd;
 	if (args.flg == OPT_EXEC) {
 		string_node nodes[] = {
 			{ .str = StrLit("clang -fno-pie -no-pie lib.a") },
-			{ .str = StrLit((char*)args.input) },
+			{ .str = { .ptr = (char*)args.input, .length = strlen(args.input) } },
 			{ .str = StrLit("-o") },
-			{ .str = StrLit((char*)args.output) }
+			{ .str = { .ptr = (char*)args.output, .length = strlen(args.output) } },
 		};
 		string_list l = {0};
 		for (size_t i=0; i<4; ++i) ListPushBack(l, nodes + i);
-		slice_char_t STR_CLEANUP cmd = str_join(l, .sep = StrLit(" "), .c_str = true);
+		cmd = str_join(l, .sep = StrLit(" "), .c_str = true);
 
+		printf("Running (%p, %u) `%.*s`\n", cmd.ptr, cmd.length, UNSLICE(cmd));
+		SLICE_TMP_STR(cmd);
 		system(cmd.ptr);
 	}
 

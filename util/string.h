@@ -89,8 +89,11 @@ str_join_opts (string_list l, string_opts opts)
 
 	for (string_node *u = l.first; u; u = u->next ) {
 		memcpy(ret.ptr + ret.length, u->str.ptr, u->str.length);
-		if (u != l.last)
+		ret.length += u->str.length;
+		if (u != l.last) {
 			memcpy(ret.ptr + ret.length, opts.sep.ptr, opts.sep.length);
+			ret.length += opts.sep.length;
+		}
 	}
 	if (opts.c_str) ret.length += 1;
 	return ret;
