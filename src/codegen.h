@@ -657,7 +657,7 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, 
         printf("%s", ir);
         LLVMDisposeMessage(ir);
     break; case OPT_ASM:
-        LLVMTargetMachineEmitToMemoryBuffer(cgen->target_machine, cgen->Module, LLVMObjectFile, &error, &mem_buf);
+        LLVMTargetMachineEmitToMemoryBuffer(cgen->target_machine, cgen->Module, LLVMAssemblyFile, &error, &mem_buf);
         fwrite(LLVMGetBufferStart(mem_buf), 1, LLVMGetBufferSize(mem_buf), stdout);
         LLVMDisposeMemoryBuffer(mem_buf);
     }

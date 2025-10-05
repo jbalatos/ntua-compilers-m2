@@ -137,12 +137,6 @@ sem_add_base_lib (const parser_t *this, sym_table_t *st)
 			log("Adding library function %s...", st_lib_names[j]);
 			log("found at this->names[%u]", this->names[i].value);
 			if (st_lib_types[j].args[0].type)
-				printf("\tAdding argument of type %s...\n",
-						sem_get_type_str(st_lib_types[j].args[0]));
-			if (st_lib_types[j].args[1].type)
-				printf("\tAdding argument of type %s...\n",
-						sem_get_type_str(st_lib_types[j].args[1]));
-			if (st_lib_types[j].args[0].type)
 				st_push_arg(st, &st_lib_types[j].func, st_lib_types[j].args[0]);
 			if (st_lib_types[j].args[1].type)
 				st_push_arg(st, &st_lib_types[j].func, st_lib_types[j].args[1]);
@@ -420,13 +414,13 @@ sem_check_decl (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 	}
 	st_push_symbol(st, node.name, func);
 
-	printf("--- Function decl: %.*s: %s(", UNSLICE(par_get_name(this, node)),
+	log("--- Function decl: %.*s: %s(", UNSLICE(par_get_name(this, node)),
 			sem_get_type_str(func));
 	for (st_arg_pos i = func.args.begin;
 			POS_DIFF(func.args.begin, i) < func.args.count;
 			i = POS_ADV(i, 1))
-		printf("%s, ", sem_get_type_str(st_get_arg(st, i)));
-	printf(")\n");
+		log("%s, ", sem_get_type_str(st_get_arg(st, i)));
+	log(")\n");
 
 	return true;
 }
@@ -465,13 +459,13 @@ sem_check_def (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 			st_push_arg(st, &func, sem_get_node_type(this, st, *it.node));
 		}
 		st_rename_scope(st, func);
-		printf("--- Function def: %.*s: %s(", UNSLICE(par_get_name(this, node)),
+		log("--- Function def: %.*s: %s(", UNSLICE(par_get_name(this, node)),
 				sem_get_type_str(func));
 		for (st_arg_pos it = func.args.begin;
 				POS_DIFF(func.args.begin, it) < func.args.count;
 				it = POS_ADV(it, 1))
-			printf("%s, ", sem_get_type_str(st_get_arg(st, it)));
-		printf(")\n");
+			log("%s, ", sem_get_type_str(st_get_arg(st, it)));
+		log(")\n");
 	}
 
 	/* register function in scope */

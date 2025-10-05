@@ -36,12 +36,18 @@ static struct argp_option options[] = {
 	{ .key = 'O', .doc = "Optimize code" },
 	{ .key = 'f', .doc = "Read source code from stdin, write binary to stdout" },
 	{ .key = 'i', .doc = "Read source code from stdin, write IR to stdout" },
+	{ .key = -1,  .name = "debug-ast",        .doc = "Pretty-print the AST" },
+	{ .key = -2,  .name = "debug-ast-array",  .doc = "Print the AST array" },
+	{ .key = -3,  .name = "debug-name-table", .doc = "Print the name table" },
 	{ 0 },
 };
 
 struct opt_args {
 	const char *input, *output;
 	enum compiler_options flg;
+	enum __attribute__((flag_enum)) {
+		DBG_AST = 1 << 0, DBG_AST_ARRAY = 1 << 1, DBG_NAME_TABLE = 1 << 2
+	} debug;
 	bool optimize : 1;
 };
 
@@ -67,6 +73,12 @@ parse_opt (int key, char *arg, struct argp_state *state)
 		args->optimize = true;
 	break; case ARGP_KEY_ARG:
 		args->input = arg;
+	break; case -1:
+		args->debug |= DBG_AST;
+	break; case -2:
+		args->debug |= DBG_AST_ARRAY;
+	break; case -3:
+		args->debug |= DBG_NAME_TABLE;
 	break; case ARGP_KEY_END:
 		if (!args->output)
 			args->output = default_output;
@@ -137,8 +149,9 @@ int main (int argc, char *argv[argc])
 		return 1;
 	}
 
-	debug_ast(&parser, root);
-	debug_ast_array(&parser);
+	if (args.debug & DBG_AST)        debug_ast(&parser, root);
+	if (args.debug & DBG_AST_ARRAY)  debug_ast_array(&parser);
+	if (args.debug & DBG_NAME_TABLE) debug_name_table(&parser);
 
 	if (!sem_check(&parser, root)) {
 		printf("\n=== Semantic Check Failed ===\n");
@@ -152,7 +165,7 @@ int main (int argc, char *argv[argc])
 		string_node nodes[] = {
 			{ .str = StrLit("clang -fno-pie -no-pie") },
 			{ .str = { .ptr = (char*)args.input, .length = strlen(args.input) } },
-			{ .str = StrLit("lib.a") },
+			{ .str = StrLit("./src/lib.a") },
 			{ .str = StrLit("-o") },
 			{ .str = { .ptr = (char*)args.output, .length = strlen(args.output) } },
 		};

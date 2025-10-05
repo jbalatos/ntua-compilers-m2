@@ -4,21 +4,18 @@ else
 LLVMCONFIG = llvm-config-16
 endif
 
+
 CC = clang
-CFLAGS=-Wall -Wextra -Werror -g -std=gnu17 -fblocks -fPIE -Wno-unknown-pragmas `$(LLVMCONFIG) --cflags`
+CFLAGS=-Wall -Wextra -Werror -std=gnu17 -fblocks -fPIE -Wno-unknown-pragmas `$(LLVMCONFIG) --cflags`
 LDLIBS=-lBlocksRuntime -lstdc++ -lpthread `$(LLVMCONFIG) --ldflags --system-libs --libs all`
-SRC = main.c
-DIST = main
 
-main:
+SRC=./src
+INCLUDE=$(SRC)/* $(SRC)/lib.a
+DIST=danac
 
-include $(SRC:.c=.d)	
-
-%.d: %.c
-	@set -e; rm -f $@; \
-	$(CC) -M $(CFLAGS) $< > $@.$$$$; \
-	sed 's,\($*\)\.o[ :]*,\1.o $@ : ,g' < $@.$$$$ > $@; \
-	rm -f $@.$$$$
+danac: $(SRC)/main.c $(INCLUDE)
+	$(CC) $(CFLAGS) $< -o $@ $(LDLIBS)
+	
 
 .PHONY: blocks
 ifeq ($(shell uname -s), Darwin)
@@ -41,4 +38,8 @@ endif
 
 .PHONY: clean
 clean:
-	rm -f *.o *.d *.d.* tags $(DIST)
+	rm -f tags
+
+.PHONY: distclean
+distclean: clean
+	rm -f $(DIST)
