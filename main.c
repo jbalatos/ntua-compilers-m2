@@ -36,6 +36,7 @@ static struct argp_option options[] = {
 	{ .key = 'O', .doc = "Optimize code" },
 	{ .key = 'f', .doc = "Read source code from stdin, write binary to stdout" },
 	{ .key = 'i', .doc = "Read source code from stdin, write IR to stdout" },
+	{ 0 },
 };
 
 struct opt_args {
@@ -69,11 +70,12 @@ parse_opt (int key, char *arg, struct argp_state *state)
 	break; case ARGP_KEY_END:
 		if (!args->output)
 			args->output = default_output;
-		if (!args->input && args->flg == OPT_EXEC) {
+		if (args->flg != OPT_EXEC) break;
+		if (!args->input) {
 			argp_error(state, "Must include input file");
 			argp_usage(state);
 		}
-		if (args->input && strncmp(
+		if (strlen(args->input) < 5 || strncmp(
 					args->input + strlen(args->input) - 5,
 					".dana", 5)) {
 			argp_error(state, "Invalid input file type; must be .dana");
@@ -164,19 +166,14 @@ int main (int argc, char *argv[argc])
 static void __attribute__((unused))
 debug_ast (const parser_t *parser, ast_node_pos root)
 {
-#if defined(ENABLE_DEBUG)
 	printf("\n=== AST PRETTY PRINT ===\n");
 	par_print(parser, root);
 	printf("\n");
-#else
-	(void)parser; (void)root;
-#endif
 }
 
 static void __attribute__((unused))
 debug_ast_array (const parser_t *parser)
 {
-#if defined(ENABLE_DEBUG)
 	printf("\n=== AST ARRAY ===\n");	
 	for (size_t i=0; i<arr_ulen(parser->nodes); ++i)
 		switch (parser->nodes[i].type){
@@ -244,44 +241,32 @@ debug_ast_array (const parser_t *parser)
 					parser->nodes[i].length);
 		}
 	printf("\n");
-#else
-	(void)parser;
-#endif
 }
 
 static void __attribute__((unused))
 debug_line_map (const parser_t *parser)
 {
-#if defined(ENABLE_DEBUG)
 	printf("\n=== LINE MAP ===\n");
 	for (size_t i=0; i<hm_ulen(parser->lexer.lines); ++i)
 		printf("Line %4lu\t|%6u\n", i,
 				parser->lexer.lines[i].pos);
 	printf("\n");
-#else
-	(void)parser;
-#endif
 }
 
 static void __attribute__((unused))
 debug_name_table (const parser_t *parser)
 {
-#if defined(ENABLE_DEBUG)
 	printf("\n=== NAME TABLE ===\n");
 	for (size_t i=0; i<arr_ulen(parser->names); ++i) {
 		printf("%4u\t%.*s\n", parser->names[i].value,
 				UNSLICE(parser->names[i].decl));
 	}
 	printf("\n");
-#else
-	(void)parser;
-#endif
 }
 
 static void __attribute__((unused))
 debug_type_table (const parser_t *parser)
 {
-#if defined(ENABLE_DEBUG)
 	printf("\n=== DATA TYPE TABLE ===\n");
 	for (size_t i=1; i<arr_ulen(parser->types); ++i) {
 		printf("%4lu :\t%15s, %u", i,
@@ -293,8 +278,5 @@ debug_type_table (const parser_t *parser)
 			printf("\n");
 	}
 	printf("\n");
-#else
-	(void)parser;
-#endif
 }
 #pragma endregion
