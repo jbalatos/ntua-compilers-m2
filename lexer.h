@@ -273,7 +273,6 @@ lexer_create_from_stdin (const __attribute__((unused)) alloc_t *alloc)
 			ret.buffer.ptr = realloc(ret.buffer.ptr, sizeof(char) * ret.buffer_cap);
 		}
 	}
-	ret.buffer.length -= 1;
 
 	if (ret.buffer.ptr) {
 		lex_push_line(&ret, (lex_buf_pos){0});

@@ -58,7 +58,7 @@ parse_opt (int key, char *arg, struct argp_state *state)
 	break; case 'f':
 		if (args->flg != 0)
 			argp_error(state, "Can only use one of -o / -f / -i");
-		args->flg = OPT_EXEC;
+		args->flg = OPT_ASM;
 	break; case 'i':
 		if (args->flg != 0)
 			argp_error(state, "Can only use one of -o / -f / -i");
@@ -70,7 +70,13 @@ parse_opt (int key, char *arg, struct argp_state *state)
 	break; case ARGP_KEY_END:
 		if (!args->output)
 			args->output = default_output;
-		if (args->flg != OPT_EXEC) break;
+		if (args->flg != OPT_EXEC) {
+			if (args->input) {
+				argp_error(state, "Cannot include input file if -f or -i is specified");
+				argp_usage(state);
+			}
+			break;
+		}
 		if (!args->input) {
 			argp_error(state, "Must include input file");
 			argp_usage(state);
@@ -142,20 +148,18 @@ int main (int argc, char *argv[argc])
 	cgen_t CGEN_CLEANUP cgen = cgen_create(&parser, 0);
 	cgen_generate_code(&cgen, &parser, root, args.flg, args.input);
 
-	slice_char_t STR_CLEANUP cmd;
 	if (args.flg == OPT_EXEC) {
 		string_node nodes[] = {
-			{ .str = StrLit("clang -fno-pie -no-pie lib.a") },
+			{ .str = StrLit("clang -fno-pie -no-pie") },
 			{ .str = { .ptr = (char*)args.input, .length = strlen(args.input) } },
+			{ .str = StrLit("lib.a") },
 			{ .str = StrLit("-o") },
 			{ .str = { .ptr = (char*)args.output, .length = strlen(args.output) } },
 		};
 		string_list l = {0};
-		for (size_t i=0; i<4; ++i) ListPushBack(l, nodes + i);
-		cmd = str_join(l, .sep = StrLit(" "), .c_str = true);
+		for (size_t i=0; i<LENGTH(nodes); ++i) ListPushBack(l, nodes + i);
+		slice_char_t STR_CLEANUP cmd = str_join(l, .sep = StrLit(" "), .c_str = true);
 
-		printf("Running (%p, %u) `%.*s`\n", cmd.ptr, cmd.length, UNSLICE(cmd));
-		SLICE_TMP_STR(cmd);
 		system(cmd.ptr);
 	}
 

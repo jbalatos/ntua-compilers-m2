@@ -634,7 +634,7 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, 
     LLVMRunPassManager(cgen->MPM, cgen->Module);
 
     char *error = NULL;
-    char *suffix = (char*)fname + strlen(fname) - 4;
+    char *suffix = fname ? (char*)fname + strlen(fname) - 4 : 0;
     char *ir;
     LLVMMemoryBufferRef mem_buf;
 
@@ -1366,7 +1366,8 @@ LLVMValueRef _cgen_get_array_at_ptr(Unused cgen_t *cgen, Unused const parser_t *
 
     array = cg_get_symbol(cgen, node.name);  
     
-    arr_ptr = LLVMBuildLoad2(cgen->IRBuilder, array.ptr_type, array.alloca, "arr_ptr");
+    if(array.is_ref) arr_ptr = LLVMBuildLoad2(cgen->IRBuilder, array.type, array.alloca, "arr_ptr_start");
+    else arr_ptr = array. alloca;
     
     arr_init(indices);
 
