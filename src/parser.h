@@ -42,7 +42,7 @@ typedef struct {
 	uint16_t name;
 	union {
 		union {
-			uint16_t num;
+			int64_t num;
 			par_text_pos str;
 			uint16_t name;
 			char ch;
@@ -421,7 +421,7 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 	case AST_TRUE ... AST_FALSE:
 		log("%s", node.type == AST_TRUE ? "true" : "false");
 	break; case AST_NUMBER:
-		log("%u", node.pl_data.num);
+		log("%ld", node.pl_data.num);
 	break; case AST_CHAR:
 		log("'%c'", node.pl_data.ch);
 	break; case AST_STRING:

@@ -194,7 +194,7 @@ debug_ast_array (const parser_t *parser)
 					ast_get_type_str(parser->nodes[i]));
 			break;
 		case AST_NUMBER:
-			printf("%3lu :\t %10s\t%8d\t(1)\n", i,
+			printf("%3lu :\t %10s\t%8ld\t(1)\n", i,
 					ast_get_type_str(parser->nodes[i]),
 					parser->nodes[i].pl_data.num);
 			break;
