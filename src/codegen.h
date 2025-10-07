@@ -668,7 +668,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
 
     if(cgen->block_term) {
         log_c("Block already has return, skipping code generation");
-        return LLVMGetUndef(LLVMInt16Type());
+        return LLVMGetUndef(LLVMInt64Type());
     }
 
     LLVMBasicBlockRef __attribute__((unused)) tmp = LLVMGetInsertBlock(cgen->IRBuilder);
@@ -1056,7 +1056,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
             LLVMTypeRef ret_type = LLVMGetReturnType(LLVMGlobalGetValueType(func));
             if (LLVMGetTypeKind(ret_type) == LLVMIntegerTypeKind) {
                 unsigned bits = LLVMGetIntTypeWidth(ret_type);
-                if (bits == 16) {
+                if (bits == 64) {
                     LLVMBuildRet(cgen->IRBuilder, c64(0));
                 } else if (bits == 8) {
                     LLVMBuildRet(cgen->IRBuilder, c8(0));
@@ -1094,7 +1094,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
     }
     /* statements */
     break; case AST_SKIP:
-        return LLVMGetUndef(LLVMInt16Type());
+        return LLVMGetUndef(LLVMInt64Type());
     break; case AST_EXIT:
         log_c("Generating exit");
         cgen->block_term = CG_RET;
@@ -1111,7 +1111,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
 
         LLVMBuildBr(cgen->IRBuilder, node.type == AST_BREAK ? loop.AfterBlock : loop.LoopBlock);
         cgen->block_term = node.type == AST_BREAK ? CG_BREAK: CG_CONT;
-        return LLVMGetUndef(LLVMInt16Type());
+        return LLVMGetUndef(LLVMInt64Type());
     }
     break; case AST_LOOP:
         {
@@ -1270,7 +1270,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         LLVMPositionBuilderAtEnd(cgen->IRBuilder, after_block);
         cgen->block_stack->current_block = after_block;
 
-        return LLVMGetUndef(LLVMInt16Type());
+        return LLVMGetUndef(LLVMInt64Type());
         }
     break; default:
         log_c("Shouldn't have come here");
