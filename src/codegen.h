@@ -739,14 +739,14 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         lhs = _cgen_generate_code(cgen, parser, it.pos);
         it = ast_next_child(it);
         rhs = _cgen_generate_code(cgen, parser, it.pos);
-        if(LLVMGetIntTypeWidth(lhs) == 8) return LLVMBuildUDiv(cgen->IRBuilder, lhs, rhs, "divtmp");
+        if(LLVMGetIntTypeWidth(LLVMTypeOf(lhs)) == 8) return LLVMBuildUDiv(cgen->IRBuilder, lhs, rhs, "divtmp");
         return LLVMBuildSDiv(cgen->IRBuilder, lhs, rhs, "divtmp");
     break; case AST_MOD:
         log_c("Generating mod");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
         it = ast_next_child(it);
         rhs = _cgen_generate_code(cgen, parser, it.pos);
-        if(LLVMGetIntTypeWidth(lhs) == 8) return LLVMBuildURem(cgen->IRBuilder, lhs, rhs, "modtmp");
+        if(LLVMGetIntTypeWidth(LLVMTypeOf(lhs)) == 8) return LLVMBuildURem(cgen->IRBuilder, lhs, rhs, "modtmp");
         return LLVMBuildSRem(cgen->IRBuilder, lhs, rhs, "modtmp");
     break; case AST_BIT_AND:
         log_c("Generating bitwise and");
@@ -801,28 +801,28 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         lhs = _cgen_generate_code(cgen, parser, it.pos);
         it = ast_next_child(it);
         rhs = _cgen_generate_code(cgen, parser, it.pos);
-        if(LLVMGetIntTypeWidth(lhs) == 8) return LLVMBuildICmp(cgen->IRBuilder, LLVMIntULE, lhs, rhs, "leqtmp");
+        if(LLVMGetIntTypeWidth(LLVMTypeOf(lhs)) == 8) return LLVMBuildICmp(cgen->IRBuilder, LLVMIntULE, lhs, rhs, "leqtmp");
         return LLVMBuildICmp(cgen->IRBuilder, LLVMIntSLE, lhs, rhs, "leqtmp");
     break; case AST_CMP_LT:
         log_c("Generating cmp lt");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
         it = ast_next_child(it);
         rhs = _cgen_generate_code(cgen, parser, it.pos);
-        if(LLVMGetIntTypeWidth(lhs) == 8) return LLVMBuildICmp(cgen->IRBuilder, LLVMIntULT, lhs, rhs, "lttmp");
+        if(LLVMGetIntTypeWidth(LLVMTypeOf(lhs)) == 8) return LLVMBuildICmp(cgen->IRBuilder, LLVMIntULT, lhs, rhs, "lttmp");
         return LLVMBuildICmp(cgen->IRBuilder, LLVMIntSLT, lhs, rhs, "lttmp");
     break; case AST_CMP_GEQ:
         log_c("Generating cmp geq");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
         it = ast_next_child(it);
         rhs = _cgen_generate_code(cgen, parser, it.pos);
-        if(LLVMGetIntTypeWidth(lhs) == 8) return LLVMBuildICmp(cgen->IRBuilder, LLVMIntUGE, lhs, rhs, "geqtmp");
+        if(LLVMGetIntTypeWidth(LLVMTypeOf(lhs)) == 8) return LLVMBuildICmp(cgen->IRBuilder, LLVMIntUGE, lhs, rhs, "geqtmp");
         return LLVMBuildICmp(cgen->IRBuilder, LLVMIntSGE, lhs, rhs, "geqtmp");
     break; case AST_CMP_GT:
         log_c("Generating cmp gt");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
         it = ast_next_child(it);
         rhs = _cgen_generate_code(cgen, parser, it.pos);
-        if(LLVMGetIntTypeWidth(lhs) == 8) return LLVMBuildICmp(cgen->IRBuilder, LLVMIntUGT, lhs, rhs, "gttmp");
+        if(LLVMGetIntTypeWidth(LLVMTypeOf(lhs)) == 8) return LLVMBuildICmp(cgen->IRBuilder, LLVMIntUGT, lhs, rhs, "gttmp");
         return LLVMBuildICmp(cgen->IRBuilder, LLVMIntSGT, lhs, rhs, "gttmp");
     break; case AST_ARRAY_AT:
         log_c("Generating array at");
