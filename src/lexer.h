@@ -354,6 +354,7 @@ _lex_scan_char (const lexer_t *this, lex_buf_pos pos)
 		case 'r':
 		case '\\':
 		case '\'':
+		case '0':
 		case '"':
 			closing = POS_ADV(pos, 3); break;
 		case 'x':
@@ -381,7 +382,7 @@ lex_get_char (const lexer_t *this, lex_token_t tok)
 		case '\\': return '\\';
 		case '\'': return '\'';
 		case '"': return '"';
-		default: _assert(false, "Invalid character passed scan");
+		default: _assert(false, "Invalid character passed backslash scan");
 		}
 	case 6:
 		buf[0] = sl.ptr[3]; buf[1] = sl.ptr[4];

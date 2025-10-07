@@ -4,14 +4,16 @@ else
 LLVMCONFIG = llvm-config-16
 endif
 
-
 CC = clang
 CFLAGS=-Wall -Wextra -Werror -std=gnu17 -fblocks -fPIE -Wno-unknown-pragmas `$(LLVMCONFIG) --cflags`
 LDLIBS=-lBlocksRuntime -lstdc++ -lpthread `$(LLVMCONFIG) --ldflags --system-libs --libs all`
 
 SRC=./src
-INCLUDE=$(SRC)/* $(SRC)/lib.a
-DIST=danac
+INCLUDE=$(SRC)/*
+DIST=danac src/lib.a
+
+.PHONY: all
+all: danac src/lib.a
 
 danac: $(SRC)/main.c $(INCLUDE)
 	$(CC) $(CFLAGS) $< -o $@ $(LDLIBS)
@@ -21,6 +23,10 @@ danac: $(SRC)/main.c $(INCLUDE)
 debug: $(SRC)/main.c $(INCLUDE)
 	$(CC) $(CFLAGS) -g $< -o danac $(LDLIBS)
 	
+
+src/lib.a: src/lib.s
+	as -o src/lib.o src/lib.s
+	ar rcs src/lib.a src/lib.o
 
 .PHONY: blocks
 ifeq ($(shell uname -s), Darwin)
@@ -43,7 +49,7 @@ endif
 
 .PHONY: clean
 clean:
-	rm -f tags
+	rm -f src/lib.o
 
 .PHONY: distclean
 distclean: clean

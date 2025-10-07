@@ -1,5 +1,6 @@
 #include <argp.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #if defined(ENABLE_SANITIZER)
 #	include <sanitizer/asan_sanitizer.h>
@@ -162,18 +163,12 @@ int main (int argc, char *argv[argc])
 	cgen_generate_code(&cgen, &parser, root, args.flg, args.input);
 
 	if (args.flg == OPT_EXEC) {
-		string_node nodes[] = {
-			{ .str = StrLit("clang -fno-pie -no-pie") },
-			{ .str = { .ptr = (char*)args.input, .length = strlen(args.input) } },
-			{ .str = StrLit("./src/lib.a") },
-			{ .str = StrLit("-o") },
-			{ .str = { .ptr = (char*)args.output, .length = strlen(args.output) } },
+		char *cmd[] = {
+			"clang", "-fno-pie", "-no-pie",
+			(char*)args.input, "./src/lib.a",
+			"-o", (char*)args.output, NULL,
 		};
-		string_list l = {0};
-		for (size_t i=0; i<LENGTH(nodes); ++i) ListPushBack(l, nodes + i);
-		slice_char_t STR_CLEANUP cmd = str_join(l, .sep = StrLit(" "), .c_str = true);
-
-		system(cmd.ptr);
+		execvp("clang", cmd);
 	}
 
 	return 0;

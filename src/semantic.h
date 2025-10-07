@@ -17,6 +17,7 @@ POS_DECL(st_arg_pos, 16);
 typedef struct {
 	enum dtype type;
 	bool is_position : 1;
+	bool is_bool : 1;
 	union {
 		dtype_pos pos;
 		struct { st_arg_pos begin; uint8_t count; } args;
@@ -28,8 +29,8 @@ typedef struct {
 	.type = par_get_type(par, p).type, .is_position = true, .pos = (p) \
 }
 #define DTYPE_INLINE(t, ...) (st_type_t){ .type = (t), __VA_OPT__(__VA_ARGS__) }
-#define DTYPE_ISNUM(t)    (((t).type == DTYPE_INT)  || ((t).type == DTYPE_BYTE) || ((t).type == DTYPE_BOOL))
-#define DTYPE_ISBOOL(t)   ((t).type == DTYPE_BOOL)
+#define DTYPE_ISNUM(t)    (((t).type == DTYPE_INT)  || ((t).type == DTYPE_BYTE))
+#define DTYPE_ISBOOL(t)   (((t).type == DTYPE_BOOL) || (t).is_bool)
 #define DTYPE_ARR_TYPE(t) ((t).type & ~DTYPE_VAR_ARRAY)
 
 // TODO: add declaration positions
@@ -105,9 +106,9 @@ static const char* st_lib_names[] = { DANA_LIBRARY };
 #define INT    DTYPE_INLINE(DTYPE_INT)
 #define BYTE   DTYPE_INLINE(DTYPE_BYTE)
 #define STRING DTYPE_INLINE(DTYPE_VAR_ARRAY | DTYPE_BYTE)
-#define PROC(name, ...)  { .func = DTYPE_INLINE(DTYPE_FUNC),             .args = { __VA_ARGS__ } },
-#define IFUNC(name, ...) { .func = DTYPE_INLINE(DTYPE_FUNC | DTYPE_INT), .args = { __VA_ARGS__ } },
-#define BFUNC(name, ...) { .func = DTYPE_INLINE(DTYPE_FUNC | DTYPE_INT), .args = { __VA_ARGS__ } },
+#define PROC(name, ...)  { .func = DTYPE_INLINE(DTYPE_FUNC),              .args = { __VA_ARGS__ } },
+#define IFUNC(name, ...) { .func = DTYPE_INLINE(DTYPE_FUNC | DTYPE_INT),  .args = { __VA_ARGS__ } },
+#define BFUNC(name, ...) { .func = DTYPE_INLINE(DTYPE_FUNC | DTYPE_BYTE), .args = { __VA_ARGS__ } },
 static struct {
 	st_type_t func;
 	st_type_t args[2];
@@ -497,7 +498,7 @@ sem_check_cond (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 			cond = try_typed(sem_eval_expr(this, st, it.pos), bool,
 					PAR_FSTR "in condition",
 					PAR_FPOS(this, node));
-			try(sem_type_eq(this, st, cond, DTYPE_INLINE(DTYPE_BOOL)),
+			throw_if(!DTYPE_ISBOOL(cond), bool,
 					PAR_FSTR "condition must be boolean",
 					PAR_FPOS(this, node));
 		} else {
@@ -536,7 +537,8 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 				UNSLICE(par_get_name(this, node)));
 
 		for (; ast_is_child(lhs); lhs = ast_next_child(lhs)) {
-			rtype = sem_eval_expr(this, st, lhs.pos);
+			rtype = try(sem_eval_expr(this, st, lhs.pos),
+					PAR_FSTR, PAR_FPOS(this, node));
 			throw_if((arr_type.type & DTYPE_ARRAY) == 0, st_type_t,
 					PAR_FSTR "subscript operator on non-array type",
 					PAR_FPOS(this, *lhs.node));
@@ -570,7 +572,8 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 
 	case AST_PLUS ... AST_MINUS:
 		if (!ast_is_child(rhs)) {
-			ltype = sem_eval_expr(this, st, lhs.pos);
+			ltype = try(sem_eval_expr(this, st, lhs.pos),
+					PAR_FSTR, PAR_FPOS(this, node));
 			throw_if(ltype.type != DTYPE_INT, st_type_t,
 					PAR_FSTR "operand of unary %s is not int",
 					PAR_FPOS(this, *lhs.node),
@@ -579,8 +582,10 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 		}
 	case AST_MULT ... AST_MOD:
 	case AST_CMP_EQ ... AST_CMP_GEQ:
-		ltype = sem_eval_expr(this, st, lhs.pos);
-		rtype = sem_eval_expr(this, st, rhs.pos);
+		ltype = try(sem_eval_expr(this, st, lhs.pos),
+				PAR_FSTR, PAR_FPOS(this, node));
+		rtype = try(sem_eval_expr(this, st, rhs.pos),
+				PAR_FSTR, PAR_FPOS(this, node));
 		throw_if(!DTYPE_ISNUM(ltype), st_type_t,
 				PAR_FSTR "LHS operand of operator %s is not numeric type",
 				PAR_FPOS(this, *lhs.node),
@@ -596,7 +601,8 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 		return node.type <= AST_MOD ? ltype : DTYPE_INLINE(DTYPE_BOOL);
 
 	case AST_BIT_NOT:
-		ltype = sem_eval_expr(this, st, lhs.pos);
+		ltype = try(sem_eval_expr(this, st, lhs.pos),
+				PAR_FSTR, PAR_FPOS(this, node));
 		throw_if(sem_get_node_type(this, st, *lhs.node).type != DTYPE_BYTE,
 				st_type_t,
 				PAR_FSTR "operand of bitwise not is not byte",
@@ -604,17 +610,19 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 		return DTYPE_INLINE(DTYPE_BYTE);
 
 	case AST_BOOL_NOT:
-		ltype = sem_eval_expr(this, st, lhs.pos);
-		throw_if(!DTYPE_ISBOOL(sem_get_node_type(this, st, *lhs.node)),
-				st_type_t,
+		ltype = try(sem_eval_expr(this, st, lhs.pos),
+				PAR_FSTR, PAR_FPOS(this, node));
+		throw_if(!DTYPE_ISBOOL(ltype), st_type_t,
 				PAR_FSTR "operand of boolean not is not boolean: %s",
 				PAR_FPOS(this, *lhs.node),
 				sem_get_type_str(sem_get_node_type(this, st, *lhs.node)));
 		return DTYPE_INLINE(DTYPE_BOOL);
 
 	case AST_BOOL_AND ... AST_BOOL_OR:
-		ltype = sem_eval_expr(this, st, lhs.pos);
-		rtype = sem_eval_expr(this, st, rhs.pos);
+		ltype = try(sem_eval_expr(this, st, lhs.pos),
+				PAR_FSTR, PAR_FPOS(this, node));
+		rtype = try(sem_eval_expr(this, st, rhs.pos),
+				PAR_FSTR, PAR_FPOS(this, node));
 		throw_if(!ast_is_child(rhs), st_type_t,
 				PAR_FSTR "operator %s expected 2 operand, got 1",
 				PAR_FPOS(this, *rhs.node),
@@ -630,8 +638,10 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 		return DTYPE_INLINE(DTYPE_BOOL);
 
 	case AST_BIT_AND ... AST_BIT_OR:
-		ltype = sem_eval_expr(this, st, lhs.pos);
-		rtype = sem_eval_expr(this, st, rhs.pos);
+		ltype = try(sem_eval_expr(this, st, lhs.pos),
+				PAR_FSTR, PAR_FPOS(this, node));
+		rtype = try(sem_eval_expr(this, st, rhs.pos),
+				PAR_FSTR, PAR_FPOS(this, node));
 		throw_if(ltype.type != DTYPE_BYTE, st_type_t,
 				PAR_FSTR "LHS operand of operator %s is not byte",
 				PAR_FPOS(this, *lhs.node),
@@ -650,7 +660,8 @@ inline st_type_t __attribute__((const))
 sem_get_node_type (const parser_t *this, const sym_table_t *st, ast_node_t node)
 {
 	switch(node.type) {
-	case AST_TRUE ... AST_FALSE: return DTYPE_INLINE(DTYPE_BOOL);
+	case AST_TRUE     :
+	case AST_FALSE    : return (st_type_t){ .type = DTYPE_BYTE, .is_bool = true };
 	case AST_CHAR     :
 	case AST_BYTE     :
 	case AST_REF_BYTE : return DTYPE_INLINE(DTYPE_BYTE);
@@ -735,9 +746,6 @@ sem_type_eq (const parser_t *this, const sym_table_t *st, st_type_t a, st_type_t
 				return false;
 		return true;
 	}
-	if ((da.type == DTYPE_BYTE && db.type == DTYPE_BOOL) ||
-			(da.type == DTYPE_BOOL && db.type == DTYPE_BYTE))
-		return true;
 	return da.type == db.type;
 }
 #pragma endregion
