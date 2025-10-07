@@ -692,7 +692,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         log_c("Generating false");
         return c8('\x00');
     break; case AST_NUMBER:
-        log_c("Generating number %d", node.pl_data.num);
+        log_c("Generating number %ld\n", node.pl_data.num);
         return c64(node.pl_data.num);
     break; case AST_CHAR:
         log_c("Generating char '%c'", node.pl_data.ch);
