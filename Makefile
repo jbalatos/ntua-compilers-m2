@@ -17,6 +17,11 @@ danac: $(SRC)/main.c $(INCLUDE)
 	$(CC) $(CFLAGS) $< -o $@ $(LDLIBS)
 	
 
+.PHONY: debug
+debug: $(SRC)/main.c $(INCLUDE)
+	$(CC) $(CFLAGS) -g $< -o danac $(LDLIBS)
+	
+
 .PHONY: blocks
 ifeq ($(shell uname -s), Darwin)
 blocks:
