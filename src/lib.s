@@ -22,39 +22,35 @@ readString:
         push    rbp
         mov     rbp, rsp
         sub     rsp, 32
-        mov     eax, edi
+        mov     QWORD PTR [rbp-24], rdi
         mov     QWORD PTR [rbp-32], rsi
-        mov     WORD PTR [rbp-20], ax
-        mov     WORD PTR [rbp-2], 0
+        mov     QWORD PTR [rbp-8], 0
         jmp     .L4
 .L7:
         call    readChar
         mov     ecx, eax
-        movsx   rdx, WORD PTR [rbp-2]
+        mov     rdx, QWORD PTR [rbp-8]
         mov     rax, QWORD PTR [rbp-32]
         add     rax, rdx
         mov     edx, ecx
         mov     BYTE PTR [rax], dl
-        movsx   rdx, WORD PTR [rbp-2]
+        mov     rdx, QWORD PTR [rbp-8]
         mov     rax, QWORD PTR [rbp-32]
         add     rax, rdx
         movzx   eax, BYTE PTR [rax]
         cmp     al, 10
         je      .L8
-        movzx   eax, WORD PTR [rbp-2]
-        add     eax, 1
-        mov     WORD PTR [rbp-2], ax
+        add     QWORD PTR [rbp-8], 1
 .L4:
-        movsx   edx, WORD PTR [rbp-2]
-        movsx   eax, WORD PTR [rbp-20]
-        sub     eax, 1
-        cmp     edx, eax
+        mov     rax, QWORD PTR [rbp-24]
+        sub     rax, 1
+        cmp     QWORD PTR [rbp-8], rax
         jl      .L7
         jmp     .L6
 .L8:
         nop
 .L6:
-        movsx   rdx, WORD PTR [rbp-2]
+        mov     rdx, QWORD PTR [rbp-8]
         mov     rax, QWORD PTR [rbp-32]
         add     rax, rdx
         mov     BYTE PTR [rax], 0
@@ -104,52 +100,51 @@ readInteger:
         push    rbp
         mov     rbp, rsp
         sub     rsp, 16
-        mov     WORD PTR [rbp-2], 0
-        mov     BYTE PTR [rbp-5], 1
-        mov     BYTE PTR [rbp-4], 0
+        mov     QWORD PTR [rbp-8], 0
+        mov     BYTE PTR [rbp-11], 1
+        mov     BYTE PTR [rbp-10], 0
 .L16:
         call    readChar
-        mov     BYTE PTR [rbp-3], al
-        cmp     BYTE PTR [rbp-3], 32
+        mov     BYTE PTR [rbp-9], al
+        cmp     BYTE PTR [rbp-9], 32
         je      .L16
-        cmp     BYTE PTR [rbp-3], 9
+        cmp     BYTE PTR [rbp-9], 9
         je      .L16
-        cmp     BYTE PTR [rbp-3], 13
+        cmp     BYTE PTR [rbp-9], 13
         je      .L16
-        cmp     BYTE PTR [rbp-3], 10
+        cmp     BYTE PTR [rbp-9], 10
         je      .L16
-        cmp     BYTE PTR [rbp-3], 45
+        cmp     BYTE PTR [rbp-9], 45
         jne     .L18
-        mov     BYTE PTR [rbp-4], 1
+        mov     BYTE PTR [rbp-10], 1
         call    readChar
-        mov     BYTE PTR [rbp-3], al
+        mov     BYTE PTR [rbp-9], al
         jmp     .L18
 .L20:
-        movzx   edx, WORD PTR [rbp-2]
-        mov     eax, edx
-        sal     eax, 2
-        add     eax, edx
-        add     eax, eax
-        mov     edx, eax
-        movsx   ax, BYTE PTR [rbp-3]
-        add     eax, edx
+        mov     rdx, QWORD PTR [rbp-8]
+        mov     rax, rdx
+        sal     rax, 2
+        add     rax, rdx
+        add     rax, rax
+        mov     rdx, rax
+        movsx   eax, BYTE PTR [rbp-9]
         sub     eax, 48
-        mov     WORD PTR [rbp-2], ax
+        cdqe
+        add     rax, rdx
+        mov     QWORD PTR [rbp-8], rax
         call    readChar
-        mov     BYTE PTR [rbp-3], al
+        mov     BYTE PTR [rbp-9], al
 .L18:
-        cmp     BYTE PTR [rbp-3], 47
+        cmp     BYTE PTR [rbp-9], 47
         jle     .L19
-        cmp     BYTE PTR [rbp-3], 57
+        cmp     BYTE PTR [rbp-9], 57
         jle     .L20
 .L19:
-        cmp     BYTE PTR [rbp-4], 0
+        cmp     BYTE PTR [rbp-10], 0
         je      .L21
-        movzx   eax, WORD PTR [rbp-2]
-        neg     eax
-        mov     WORD PTR [rbp-2], ax
+        neg     QWORD PTR [rbp-8]
 .L21:
-        movzx   eax, WORD PTR [rbp-2]
+        mov     rax, QWORD PTR [rbp-8]
         leave
         ret
 writeChar:
@@ -252,58 +247,53 @@ writeInteger:
         push    rbp
         mov     rbp, rsp
         sub     rsp, 32
-        mov     eax, edi
-        mov     WORD PTR [rbp-20], ax
+        mov     QWORD PTR [rbp-24], rdi
         mov     BYTE PTR [rbp-1], 0
-        cmp     WORD PTR [rbp-20], 0
+        cmp     QWORD PTR [rbp-24], 0
         jns     .L35
         mov     edi, 45
         call    writeChar
-        movzx   eax, WORD PTR [rbp-20]
-        neg     eax
-        mov     WORD PTR [rbp-20], ax
+        neg     QWORD PTR [rbp-24]
         jmp     .L38
 .L35:
-        cmp     WORD PTR [rbp-20], 0
+        cmp     QWORD PTR [rbp-24], 0
         jne     .L38
         mov     edi, 48
         call    writeChar
         jmp     .L34
 .L39:
-        movzx   edx, WORD PTR [rbp-20]
-        movsx   eax, dx
-        imul    eax, eax, 26215
-        shr     eax, 16
-        sar     ax, 2
-        mov     esi, edx
-        sar     si, 15
-        sub     eax, esi
-        mov     ecx, eax
-        mov     eax, ecx
-        sal     eax, 2
-        add     eax, ecx
-        add     eax, eax
-        mov     ecx, edx
-        sub     ecx, eax
+        mov     rcx, QWORD PTR [rbp-24]
+        movabs  rdx, 7378697629483820647
+        mov     rax, rcx
+        imul    rdx
+        sar     rdx, 2
+        mov     rax, rcx
+        sar     rax, 63
+        sub     rdx, rax
+        mov     rax, rdx
+        sal     rax, 2
+        add     rax, rdx
+        add     rax, rax
+        sub     rcx, rax
+        mov     rdx, rcx
         movzx   eax, BYTE PTR [rbp-1]
-        lea     edx, [rax+1]
-        mov     BYTE PTR [rbp-1], dl
+        lea     ecx, [rax+1]
+        mov     BYTE PTR [rbp-1], cl
         movzx   eax, al
-        mov     edx, ecx
         cdqe
         mov     BYTE PTR [rbp-6+rax], dl
-        movzx   eax, WORD PTR [rbp-20]
-        movsx   edx, ax
-        imul    edx, edx, 26215
-        shr     edx, 16
-        sar     dx, 2
-        sar     ax, 15
-        mov     ecx, eax
-        mov     eax, edx
-        sub     eax, ecx
-        mov     WORD PTR [rbp-20], ax
+        mov     rcx, QWORD PTR [rbp-24]
+        movabs  rdx, 7378697629483820647
+        mov     rax, rcx
+        imul    rdx
+        mov     rax, rdx
+        sar     rax, 2
+        sar     rcx, 63
+        mov     rdx, rcx
+        sub     rax, rdx
+        mov     QWORD PTR [rbp-24], rax
 .L38:
-        cmp     WORD PTR [rbp-20], 0
+        cmp     QWORD PTR [rbp-24], 0
         jne     .L39
         jmp     .L40
 .L41:
@@ -334,21 +324,18 @@ extend:
 shrink:
         push    rbp
         mov     rbp, rsp
-        mov     eax, edi
-        mov     WORD PTR [rbp-4], ax
-        movzx   eax, WORD PTR [rbp-4]
+        mov     QWORD PTR [rbp-8], rdi
+        mov     rax, QWORD PTR [rbp-8]
         pop     rbp
         ret
 strlen:
         push    rbp
         mov     rbp, rsp
         mov     QWORD PTR [rbp-24], rdi
-        mov     WORD PTR [rbp-2], 0
+        mov     QWORD PTR [rbp-8], 0
         jmp     .L47
 .L48:
-        movzx   eax, WORD PTR [rbp-2]
-        add     eax, 1
-        mov     WORD PTR [rbp-2], ax
+        add     QWORD PTR [rbp-8], 1
 .L47:
         mov     rax, QWORD PTR [rbp-24]
         lea     rdx, [rax+1]
@@ -356,7 +343,7 @@ strlen:
         movzx   eax, BYTE PTR [rax]
         test    al, al
         jne     .L48
-        movzx   eax, WORD PTR [rbp-2]
+        mov     rax, QWORD PTR [rbp-8]
         pop     rbp
         ret
 strcmp:
@@ -379,7 +366,7 @@ strcmp:
         movzx   eax, BYTE PTR [rax]
         movzx   eax, al
         sub     edx, eax
-        mov     eax, edx
+        movsx   rax, edx
         jmp     .L53
 .L52:
         add     QWORD PTR [rbp-8], 1
@@ -401,7 +388,7 @@ strcmp:
         movzx   eax, BYTE PTR [rax]
         movzx   eax, al
         sub     edx, eax
-        mov     eax, edx
+        movsx   rax, edx
 .L53:
         pop     rbp
         ret
