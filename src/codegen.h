@@ -127,7 +127,7 @@ extern bool             cg_func_exists (const cg_table_t *this, uint16_t name);
 #pragma region CODEGEN DECLARATIONS
 
 extern LLVMValueRef c8(char c);
-extern LLVMValueRef c16(int16_t i);
+extern LLVMValueRef c64(int64_t i);
 
 #define CGEN_CLEANUP __attribute__((cleanup(cgen_destroy)))
 extern cgen_t cgen_create(const parser_t * parser, int opt_level);
@@ -388,7 +388,7 @@ find_loop (LoopInfo **h, int label) {
 #pragma region CODEGEN IMPLEMENTATIONS
 
 #define c8(c) LLVMConstInt(LLVMInt8TypeInContext(cgen->Context), (uint64_t)(c), false)
-#define c16(i) LLVMConstInt(LLVMInt16TypeInContext(cgen->Context), (uint64_t)(i), false)
+#define c64(i) LLVMConstInt(LLVMInt64TypeInContext(cgen->Context), (uint64_t)(i), false)
 
 cgen_t cgen_create(const parser_t * parser, int opt_level) {
     log_c("INITIALIZING CODEGEN");
@@ -491,7 +491,7 @@ cgen_t cgen_create(const parser_t * parser, int opt_level) {
     #define CG_ARGC_(_1, _2, n, ...) n
     #define CG_ARGC(...) CG_ARGC_(__VA_ARGS__ __VA_OPT__(,) 2, 1, 0)
     #define PROC(name, ...)  { .ret = LLVMVoidTypeInContext(context), .args = { __VA_ARGS__ }, .count = CG_ARGC(__VA_ARGS__) },
-    #define IFUNC(name, ...) { .ret = ret.i16, .args = { __VA_ARGS__ }, .count = CG_ARGC(__VA_ARGS__) },
+    #define IFUNC(name, ...) { .ret = ret.i64, .args = { __VA_ARGS__ }, .count = CG_ARGC(__VA_ARGS__) },
     #define BFUNC(name, ...) { .ret = BYTE, .args = { __VA_ARGS__ }, .count = CG_ARGC(__VA_ARGS__) },
     struct {
         LLVMTypeRef ret;
@@ -564,7 +564,7 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, 
 
     assert(node_at(parser, pos).type == AST_DEF_PROC);
 
-    LLVMTypeRef main_func_type = LLVMFunctionType(cgen->i16, NULL, 0, false);
+    LLVMTypeRef main_func_type = LLVMFunctionType(cgen->i64, NULL, 0, false);
     LLVMValueRef main_func = LLVMAddFunction(cgen->Module, "main", main_func_type);
     LLVMSetFunctionCallConv(main_func, LLVMCCallConv);
     LLVMAddAttributeAtIndex(main_func, LLVMAttributeFunctionIndex, cgen->stack_align);
@@ -623,7 +623,7 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, 
 
     log_c("Building return");
 
-    LLVMBuildRet(cgen->IRBuilder, c16(0));
+    LLVMBuildRet(cgen->IRBuilder, c64(0));
 
     cgen_verify_module(cgen);
 
@@ -693,7 +693,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         return c8('\x00');
     break; case AST_NUMBER:
         log_c("Generating number %d", node.pl_data.num);
-        return c16(node.pl_data.num);
+        return c64(node.pl_data.num);
     break; case AST_CHAR:
         log_c("Generating char '%c'", node.pl_data.ch);
         return c8(node.pl_data.ch);
@@ -916,7 +916,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         if(node.type == AST_DECL_PROC || node.type == AST_DEF_PROC)
             ret_type = LLVMVoidTypeInContext(cgen->Context);
         else if (node.type == AST_DECL_INT || node.type == AST_DEF_INT)
-            ret_type = cgen->i16;
+            ret_type = cgen->i64;
         else
             ret_type = cgen->i8;
 
@@ -1007,7 +1007,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
                     types.type = cgen->i8;
                     types.is_ref = true;
                 case AST_REF_INT: 
-                    types.type = cgen->i16;
+                    types.type = cgen->i64;
                     types.is_ref = true;
                 break; case AST_INT: case AST_BYTE:
                     types.is_ref = false;
@@ -1057,7 +1057,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
             if (LLVMGetTypeKind(ret_type) == LLVMIntegerTypeKind) {
                 unsigned bits = LLVMGetIntTypeWidth(ret_type);
                 if (bits == 16) {
-                    LLVMBuildRet(cgen->IRBuilder, c16(0));
+                    LLVMBuildRet(cgen->IRBuilder, c64(0));
                 } else if (bits == 8) {
                     LLVMBuildRet(cgen->IRBuilder, c8(0));
                 } else {
@@ -1162,7 +1162,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
                     {
                         unsigned bits = LLVMGetIntTypeWidth(ret_type);
                         if(bits <= 8) LLVMBuildRet(cgen->IRBuilder, c8(1));
-                        else LLVMBuildRet(cgen->IRBuilder, c16(1));
+                        else LLVMBuildRet(cgen->IRBuilder, c64(1));
                     }
                     break; case(LLVMVoidTypeKind):
                         LLVMBuildRetVoid(cgen->IRBuilder);
@@ -1211,7 +1211,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         
         LLVMValueRef ret = _cgen_generate_code(cgen, parser, it.pos);
         if(LLVMTypeOf(ret) == (cgen->i8)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), ret, "bool_cond");
-        if(LLVMTypeOf(ret) == (cgen->i16)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c16(0), ret, "bool_cond");
+        if(LLVMTypeOf(ret) == (cgen->i64)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c64(0), ret, "bool_cond");
         LLVMBuildCondBr(cgen->IRBuilder, ret, then_block, else_block);
 
         it = ast_next_child(it);
@@ -1235,7 +1235,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
 			if (ast_is_child(ast_next_child(it))) {
 				ret = _cgen_generate_code(cgen, parser, it.pos);
                 if(LLVMTypeOf(ret) == (cgen->i8)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), ret, "bool_cond");
-                if(LLVMTypeOf(ret) == (cgen->i16)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c16(0), ret, "bool_cond");
+                if(LLVMTypeOf(ret) == (cgen->i64)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c64(0), ret, "bool_cond");
                 then_block = LLVMAppendBasicBlockInContext(cgen->Context, func, "then");
                 else_block = LLVMAppendBasicBlockInContext(cgen->Context, func, "else(_if)");
                 LLVMBuildCondBr(cgen->IRBuilder, ret, then_block, else_block);
@@ -1297,11 +1297,11 @@ cgen_var_t _cgen_get_var_types(cgen_t *cgen, const parser_t *parser, ast_node_po
             }
             }
         break; case AST_INT: 
-            types.type = cgen->i16; 
+            types.type = cgen->i64; 
         break; case AST_BYTE: 
             types.type = cgen->i8; 
         break; case AST_REF_INT: 
-            types.type = LLVMPointerType(cgen->i16, 0); 
+            types.type = LLVMPointerType(cgen->i64, 0); 
         break; case AST_REF_BYTE: 
             types.type = LLVMPointerType(cgen->i8, 0); 
         break; default:
@@ -1327,8 +1327,8 @@ cgen_var_t _cgen_get_array_type(cgen_t *cgen, const parser_t *parser, ast_node_t
         return types;
     } else {
         if (type.type & DTYPE_INT) {
-            types.type = cgen->i16;
-            types.element_type = cgen->i16;
+            types.type = cgen->i64;
+            types.element_type = cgen->i64;
             return types;
         }
         if (type.type & DTYPE_BYTE) {
@@ -1383,7 +1383,7 @@ LLVMValueRef _cgen_get_array_at_ptr(Unused cgen_t *cgen, Unused const parser_t *
     ast_node_it it = ast_get_child(parser, pos);
 
     LLVMValueRef* indices;
-    LLVMValueRef index = c16(0);
+    LLVMValueRef index = c64(0);
 
     cgen_var_t array;
     LLVMValueRef arr_ptr, ptr;
