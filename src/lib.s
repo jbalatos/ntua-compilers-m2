@@ -246,23 +246,23 @@ writeByte:
 writeInteger:
         push    rbp
         mov     rbp, rsp
-        sub     rsp, 32
-        mov     QWORD PTR [rbp-24], rdi
+        sub     rsp, 48
+        mov     QWORD PTR [rbp-40], rdi
         mov     BYTE PTR [rbp-1], 0
-        cmp     QWORD PTR [rbp-24], 0
+        cmp     QWORD PTR [rbp-40], 0
         jns     .L35
         mov     edi, 45
         call    writeChar
-        neg     QWORD PTR [rbp-24]
+        neg     QWORD PTR [rbp-40]
         jmp     .L38
 .L35:
-        cmp     QWORD PTR [rbp-24], 0
+        cmp     QWORD PTR [rbp-40], 0
         jne     .L38
         mov     edi, 48
         call    writeChar
         jmp     .L34
 .L39:
-        mov     rcx, QWORD PTR [rbp-24]
+        mov     rcx, QWORD PTR [rbp-40]
         movabs  rdx, 7378697629483820647
         mov     rax, rcx
         imul    rdx
@@ -281,8 +281,8 @@ writeInteger:
         mov     BYTE PTR [rbp-1], cl
         movzx   eax, al
         cdqe
-        mov     BYTE PTR [rbp-6+rax], dl
-        mov     rcx, QWORD PTR [rbp-24]
+        mov     BYTE PTR [rbp-32+rax], dl
+        mov     rcx, QWORD PTR [rbp-40]
         movabs  rdx, 7378697629483820647
         mov     rax, rcx
         imul    rdx
@@ -291,15 +291,15 @@ writeInteger:
         sar     rcx, 63
         mov     rdx, rcx
         sub     rax, rdx
-        mov     QWORD PTR [rbp-24], rax
+        mov     QWORD PTR [rbp-40], rax
 .L38:
-        cmp     QWORD PTR [rbp-24], 0
+        cmp     QWORD PTR [rbp-40], 0
         jne     .L39
         jmp     .L40
 .L41:
         movzx   eax, BYTE PTR [rbp-1]
         cdqe
-        movzx   eax, BYTE PTR [rbp-6+rax]
+        movzx   eax, BYTE PTR [rbp-32+rax]
         add     eax, 48
         movsx   eax, al
         mov     edi, eax
