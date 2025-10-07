@@ -29,7 +29,7 @@ typedef struct {
 }
 #define DTYPE_INLINE(t, ...) (st_type_t){ .type = (t), __VA_OPT__(__VA_ARGS__) }
 #define DTYPE_ISNUM(t)    (((t).type == DTYPE_INT)  || ((t).type == DTYPE_BYTE) || ((t).type == DTYPE_BOOL))
-#define DTYPE_ISBOOL(t)   (((t).type == DTYPE_BOOL) || ((t).type == DTYPE_BYTE))
+#define DTYPE_ISBOOL(t)   ((t).type == DTYPE_BOOL)
 #define DTYPE_ARR_TYPE(t) ((t).type & ~DTYPE_VAR_ARRAY)
 
 // TODO: add declaration positions
@@ -605,11 +605,11 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 
 	case AST_BOOL_NOT:
 		ltype = sem_eval_expr(this, st, lhs.pos);
-		throw_if(!DTYPE_ISBOOL(sem_get_node_type(this, st, *lhs.node)) ||
-			 !DTYPE_ISBOOL(sem_get_node_type(this, st, *lhs.node)),
+		throw_if(!DTYPE_ISBOOL(sem_get_node_type(this, st, *lhs.node)),
 				st_type_t,
-				PAR_FSTR "operand of boolean not is not boolean",
-				PAR_FPOS(this, *lhs.node));
+				PAR_FSTR "operand of boolean not is not boolean: %s",
+				PAR_FPOS(this, *lhs.node),
+				sem_get_type_str(sem_get_node_type(this, st, *lhs.node)));
 		return DTYPE_INLINE(DTYPE_BOOL);
 
 	case AST_BOOL_AND ... AST_BOOL_OR:
