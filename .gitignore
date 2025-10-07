@@ -10,5 +10,8 @@ tags
 etc/
 .ccls-cache
 .vscode
+
 danac
 a.out
+*.asm
+*.imm

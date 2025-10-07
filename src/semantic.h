@@ -326,7 +326,8 @@ _sem_check (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 				UNSLICE(par_get_name(this, node))
 				);
 	break; case AST_RETURN:
-		lhs = sem_eval_expr(this, st, it.pos);
+		lhs = try_typed(sem_eval_expr(this, st, it.pos), bool,
+				PAR_FSTR, PAR_FPOS(this, *it.node));
 		rhs = st_get_last_def(st, DTYPE_FUNC); rhs.type &= ~DTYPE_FUNC;
 		throw_if(!sem_type_eq(this, st, lhs, rhs), bool,
 				PAR_FSTR "return value of type %s cannot be casted to expected type %s",
@@ -379,7 +380,8 @@ sem_check_args (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 
 	for (; ast_is_child(it) && argc < func.args.count;
 			it = ast_next_child(it), ++argc, ++arg_proto.pos) {
-		arg = sem_eval_expr(this, st, it.pos);
+		arg = try_typed(sem_eval_expr(this, st, it.pos), bool,
+				PAR_FSTR, PAR_FPOS(this, node));
 		throw_if(!sem_type_eq(this, st, arg, st_get_arg(st, arg_proto)), bool,
 				PAR_FSTR "argument type %s cannot be converted to expected type %s",
 				PAR_FPOS(this, *it.node),
