@@ -753,33 +753,92 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         lhs = _cgen_generate_code(cgen, parser, it.pos);
         it = ast_next_child(it);
         rhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = LLVMBuildZExt(cgen->IRBuilder, LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, lhs, c8(0), "make_bool"), cgen->i8, "cast_bool");
+        rhs = LLVMBuildZExt(cgen->IRBuilder, LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, rhs, c8(0), "make_bool"), cgen->i8, "cast_bool");
         return LLVMBuildAnd(cgen->IRBuilder, lhs, rhs, "andtmp");
     break; case AST_BIT_OR:
         log_c("Generating bitwise or");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
         it = ast_next_child(it);
         rhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = LLVMBuildZExt(cgen->IRBuilder, LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, lhs, c8(0), "make_bool"), cgen->i8, "cast_bool");
+        rhs = LLVMBuildZExt(cgen->IRBuilder, LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, rhs, c8(0), "make_bool"), cgen->i8, "cast_bool");
         return LLVMBuildOr(cgen->IRBuilder, lhs, rhs, "ortmp");
     break; case AST_BIT_NOT:
         log_c("Generating bitwise not");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = LLVMBuildZExt(cgen->IRBuilder, LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, lhs, c8(0), "make_bool"), cgen->i8, "cast_bool");
         return LLVMBuildNot(cgen->IRBuilder, lhs, "nottmp");
     break; case AST_BOOL_AND:
+        {
         log_c("Generating boolean and");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
-        if(LLVMTypeOf(lhs)==cgen->i8) LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), lhs, "bool_cond");
+        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        if(LLVMTypeOf(lhs)==cgen->i8) lhs = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), lhs, "bool_cond");
+        LLVMBasicBlockRef s_c_and = LLVMGetInsertBlock(cgen->IRBuilder);
+        LLVMBasicBlockRef bool_and = LLVMAppendBasicBlockInContext(cgen->Context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cgen->IRBuilder)), "bool_and");
+        LLVMBasicBlockRef after_and = LLVMAppendBasicBlockInContext(cgen->Context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cgen->IRBuilder)), "after_and");
+        LLVMBuildCondBr(cgen->IRBuilder, lhs, bool_and, after_and);
+
+        LLVMPositionBuilderAtEnd(cgen->IRBuilder, bool_and);
+        cgen->block_stack->current_block = bool_and;
+
         it = ast_next_child(it);
         rhs = _cgen_generate_code(cgen, parser, it.pos);
-        if(LLVMTypeOf(rhs)==cgen->i8) LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), rhs, "bool_cond");
-        return LLVMBuildAnd(cgen->IRBuilder, lhs, rhs, "andtmp");
+        if(LLVMTypeOf(rhs)==cgen->i8) rhs = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), rhs, "bool_cond");
+
+        LLVMBasicBlockRef normal_and = LLVMGetInsertBlock(cgen->IRBuilder);
+
+        LLVMBuildBr(cgen->IRBuilder, after_and);
+
+        LLVMPositionBuilderAtEnd(cgen->IRBuilder, after_and);
+        cgen->block_stack->current_block = after_and;
+        LLVMValueRef phi = LLVMBuildPhi(cgen->IRBuilder, cgen->i1, "cond_res");
+        LLVMValueRef * incoming = {0};
+        arr_push(incoming, LLVMConstInt(LLVMIntTypeInContext(cgen->Context, 1), '\x00', false));
+        arr_push(incoming, rhs);
+        LLVMBasicBlockRef * inc_blocks = {0};
+        arr_push(inc_blocks, s_c_and);
+        arr_push(inc_blocks, normal_and);
+        LLVMAddIncoming(phi, incoming, inc_blocks, 2);
+
+        return phi;
+        }
     break; case AST_BOOL_OR:
+        {
         log_c("Generating boolean or");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
-        if(LLVMTypeOf(lhs)==cgen->i8) LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), lhs, "bool_cond");
+        if(LLVMTypeOf(lhs)==cgen->i8) lhs = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), lhs, "bool_cond");
+        LLVMBasicBlockRef s_c_or = LLVMGetInsertBlock(cgen->IRBuilder);
+        LLVMBasicBlockRef bool_or = LLVMAppendBasicBlockInContext(cgen->Context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cgen->IRBuilder)), "bool_or");
+        LLVMBasicBlockRef after_or = LLVMAppendBasicBlockInContext(cgen->Context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cgen->IRBuilder)), "after_or");
+        LLVMBuildCondBr(cgen->IRBuilder, lhs, after_or, bool_or);
+
+        LLVMPositionBuilderAtEnd(cgen->IRBuilder, bool_or);
+        cgen->block_stack->current_block = bool_or;
+
         it = ast_next_child(it);
         rhs = _cgen_generate_code(cgen, parser, it.pos);
-        if(LLVMTypeOf(rhs)==cgen->i8) LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), rhs, "bool_cond");
-        return LLVMBuildOr(cgen->IRBuilder, lhs, rhs, "ortmp");
+        if(LLVMTypeOf(rhs)==cgen->i8) rhs = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), rhs, "bool_cond");
+
+        LLVMBasicBlockRef normal_or = LLVMGetInsertBlock(cgen->IRBuilder);
+
+        LLVMBuildBr(cgen->IRBuilder, after_or);
+
+        LLVMPositionBuilderAtEnd(cgen->IRBuilder, after_or);
+        cgen->block_stack->current_block = after_or;
+        LLVMValueRef phi = LLVMBuildPhi(cgen->IRBuilder, cgen->i1, "cond_res");
+        LLVMValueRef * incoming = {0};
+
+        arr_push(incoming, LLVMConstInt(LLVMIntTypeInContext(cgen->Context, 1), '\x01', false));
+        arr_push(incoming, rhs);
+        LLVMBasicBlockRef * inc_blocks = {0};
+        arr_push(inc_blocks, s_c_or);
+        arr_push(inc_blocks, normal_or);
+        LLVMAddIncoming(phi, incoming, inc_blocks, 2);
+
+        return phi;
+        }
     break; case AST_BOOL_NOT:
         log_c("Generating boolean not");
         lhs = _cgen_generate_code(cgen, parser, it.pos);
@@ -1006,7 +1065,8 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
                 break; case AST_REF_BYTE: 
                     types.type = cgen->i8;
                     types.is_ref = true;
-                case AST_REF_INT: 
+                    log_c("Number of bits is %d", LLVMGetIntTypeWidth(types.type));
+                break; case AST_REF_INT: 
                     types.type = cgen->i64;
                     types.is_ref = true;
                 break; case AST_INT: case AST_BYTE:
@@ -1347,6 +1407,7 @@ LLVMValueRef _cgen_get_var_value(cgen_t *cgen, const parser_t *parser, ast_node_
     LLVMValueRef ptr;
     LLVMTypeRef var_type;
     cgen_var_t var = cg_get_symbol(cgen, node.name);
+    log_c("I get %d bits", LLVMGetIntTypeWidth(var.type));
 
     switch(node.type) {
         break; case AST_ARRAY_AT:
@@ -1373,6 +1434,7 @@ LLVMValueRef _cgen_get_var_value(cgen_t *cgen, const parser_t *parser, ast_node_
     }
 
     if(var.is_ref && node.type!=AST_ARRAY_AT) ptr = LLVMBuildLoad2(cgen->IRBuilder, LLVMPointerType(var_type, 0), ptr, "load_ptr");
+    log_c("Got %d", LLVMGetIntTypeWidth(var_type));
     if(is_lvalue) return ptr;
     return LLVMBuildLoad2(cgen->IRBuilder, var_type, ptr, "load");
 }
