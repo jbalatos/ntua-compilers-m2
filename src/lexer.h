@@ -45,6 +45,7 @@ typedef struct { uint8_t tabs, spaces;  } indent_info_t;
 #define KW(l, p, s) KW_LEX(l, s)
 /* just for alignment between lex_type and ast_type */
 #define LT_PAR(p, s) DANA_UNUSED_ ## p,
+#define OP_PAR(p, s) DANA_UNUSED_ ## p,
 #define KW_PAR(p, s) DANA_UNUSED_KW_ ## p,
 
 typedef struct {
@@ -69,6 +70,7 @@ typedef struct {
 #undef KW
 #undef LT_PAR
 #undef KW_PAR
+#undef OP_PAR
 
 #pragma endregion
 
@@ -123,6 +125,7 @@ static struct { const char *key; enum lex_type value; } *lex_symbol_table;
 #define LT_LEX(l, s)
 #define LT_PAR(p, s)
 #define KW_PAR(p, s)
+#define OP_PAR(p, s)
 #define OP(l, p, s) OP_LEX(l, s)
 #define TK(l, p, s) TK_LEX(l, s)
 #define LT(l, p, s) LT_LEX(l, s)
@@ -141,6 +144,7 @@ static const char* lex_symbol_arr[] = {
 #undef KW_LEX
 #undef LT_PAR
 #undef KW_PAR
+#undef OP_PAR
 #undef OP
 #undef TK
 #undef LT
@@ -150,6 +154,8 @@ static const char* lex_symbol_arr[] = {
 #define TK_LEX(l, s)
 #define LT_LEX(l, s) lex_symbol_arr[DANA_ ## l] = s;
 #define LT_PAR(p, s)
+#define OP_PAR(p, s)
+#define KW_PAR(p, s)
 #define OP(l, p, s) OP_LEX(l, s)
 #define TK(l, p, s) TK_LEX(l, s)
 #define LT(l, p, s) LT_LEX(l, s)
@@ -168,6 +174,8 @@ create_lex_symbol_table (void)
 #undef TK_LEX
 #undef LT_LEX
 #undef LT_PAR
+#undef OP_PAR
+#undef KW_PAR
 #undef OP
 #undef TK
 #undef LT

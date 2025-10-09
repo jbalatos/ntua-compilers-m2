@@ -20,8 +20,9 @@ typedef struct { uint32_t v : 31; bool ok : 1; } ret_size;
 
 #define LT_PAR(p, s) AST_ ## p,
 #define KW_PAR(p, s) AST_ ## p,
-#define OP(l, p, s)  AST_ ## p,
+#define OP_PAR(p, s) AST_ ## p,
 #define TK(l, p, s)  AST_ ## p,
+#define OP(l, p, s)  OP_PAR(p, s)
 #define LT(l, p, s)  LT_PAR(p, s)
 #define KW(l, p, s)  KW_PAR(p, s)
 /* just for alignment between lex_type and ast_type */
@@ -50,7 +51,10 @@ typedef struct {
 		struct {
 			uint32_t local_off, body_off;
 		} def_data;
-		struct { dtype_pos array; } var_data;
+		struct {
+			par_text_pos str;
+			dtype_pos array;
+		} var_data;
 	};
 } ast_node_t;
 
@@ -64,6 +68,7 @@ typedef struct {
 #undef KW
 #undef LT_PAR
 #undef KW_PAR
+#undef OP_PAR
 
 typedef struct {
 	enum dtype {
@@ -182,6 +187,7 @@ extern const char* dtype_get_type_str(enum dtype type);
 
 #define LT_PAR(p, s) [AST_ ## p] = s,
 #define KW_PAR(p, s) [AST_ ## p] = s,
+#define OP_PAR(p, s) [AST_ ## p] = s,
 #define OP(l, p, s)  [AST_ ## p] = s,
 #define TK(l, p, s)  [AST_ ## p] = s,
 #define LT(l, p, s) LT_PAR(p, s)
@@ -203,6 +209,7 @@ static const char* ast_symbol_arr[] = {
 #undef KW_LEX
 #undef LT_PAR
 #undef KW_PAR
+#undef OP_PAR
 #undef OP
 #undef TK
 #undef LT
@@ -212,6 +219,7 @@ static const char* ast_symbol_arr[] = {
 #define TK_LEX(l, s)
 #define LT_LEX(l, s)
 #define LT_PAR(p, s) ast_symbol_arr[AST_ ## p] = s;
+#define OP_PAR(p, s)
 #define OP(l, p, s) OP_LEX(l, s)
 #define TK(l, p, s) TK_LEX(l, s)
 #define LT(l, p, s) LT_PAR(p, s)
@@ -227,6 +235,7 @@ fix_ast_sym_arr (void)
 #undef TK_LEX
 #undef LT_LEX
 #undef LT_PAR
+#undef OP_PAR
 #undef OP
 #undef TK
 #undef LT
@@ -423,7 +432,19 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 	break; case AST_NUMBER:
 		log("%ld", node.pl_data.num);
 	break; case AST_CHAR:
-		log("'%c'", node.pl_data.ch);
+		switch (node.pl_data.ch) {
+		break; case '\n': log("'\\n'");
+		break; case '\t': log("'\\t'");
+		break; case '\r': log("'\\r'");
+		break; case '\0': log("'\\0'");
+		break; case '\\': log("'\\\\'");
+		break; case '\'': log("'\\'");
+		break; case '\"': log("'\\\"'");
+		break; default: if (node.pl_data.ch >= 32 && node.pl_data.ch <= 126)
+				 log("'%c'", node.pl_data.ch);
+			 else
+				 log("\\x%02x", (uint8_t)node.pl_data.ch);
+		}
 	break; case AST_STRING:
 		log("\"%s\"", par_get_text(this, node.pl_data.str));
 	break; case AST_NAME:
@@ -471,8 +492,12 @@ par_full_print (FILE *f, const parser_t *this, ast_node_pos pos, int8_t depth)
 			it = ast_next_child(it);
 		}
 		log(")");
-	break; case AST_ARRAY_AT:
-		log_plain("%.*s", _NAME_);
+	break;  case AST_ARRAY_AT:
+		case AST_STRING_AT:
+		if (node.type == AST_ARRAY_AT)
+			log_plain("%.*s", _NAME_);
+		else
+			log_plain("%s", par_get_text(this, node.var_data.str));
 		_assert(ast_is_child(it), "ARRAY_AT must have >= 1 subscripts");
 		for (; ast_is_child(it); it = ast_next_child(it)) {
 			log_plain("[");
@@ -1187,14 +1212,13 @@ parse_lvalue (parser_t *this)
 				PAR_FPOS(this, tok), lex_get_type_str(tok));
 	});
 
-	if (par_peek_token(this).type == DANA_OPEN_BRACKET) {
-		throw_if(node_at(this, node).type != AST_NAME,
-				ast_node_pos,
-				PAR_FSTR "[] operator on invalid lvalue",
-				PAR_FPOS(this, node)
-			);
+	if (par_peek_token(this).type == DANA_OPEN_BRACKET) switch (node_at(this, node).type) {
+	break; case AST_NAME:
 		node_at(this, node).type = AST_ARRAY_AT;
-
+		goto handle_subscripts;
+	break; case AST_STRING:
+		node_at(this, node).type = AST_STRING_AT;
+handle_subscripts:
 		while ((tok = par_peek_token(this)).type == DANA_OPEN_BRACKET) {
 			par_pop_token(this);
 			tmp = try(parse_expr(this, 0),
@@ -1203,6 +1227,9 @@ parse_lvalue (parser_t *this)
 			node_at(this, node).length += par_get_node(this, tmp).length;
 			par_pop_require(this, DANA_CLOSE_BRACKET, ast_node_pos);
 		}
+	break; default:
+		throw(ast_node_pos, PAR_FSTR "[] operator on invalid lvalue",
+				PAR_FPOS(this, node));
 	}
 
 	return node;

@@ -19,6 +19,7 @@
 	OP	(OPEN_PAREN,	FUNC_CALL,	"(")	/* dividers */	\
 	OP_LEX	(CLOSE_PAREN,			")")			\
 	OP	(OPEN_BRACKET,	ARRAY_AT,	"[")			\
+	OP_PAR  (		STRING_AT,	"s[")			\
 	OP	(CLOSE_BRACKET,	ARRAY,		"]")			\
 	TK_LEX	(COMMA,				",")			\
 	TK	(COLON,		PROC_CALL,	":")			\
