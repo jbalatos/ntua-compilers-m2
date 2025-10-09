@@ -926,9 +926,9 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
 
         for (; ast_is_child(it) && i<arg_count; it = ast_next_child(it), i++) {
             if(LLVMGetTypeKind(arg_types[i]) == LLVMPointerTypeKind)
-                arg = try(_cgen_get_var_value(cgen, parser, it.pos, true), "while calling args");
+                arg = try(_cgen_get_var_value(cgen, parser, it.pos, true), PAR_FSTR "while calling args", PAR_FPOS(parser, it.pos));
             else
-                arg = try(_cgen_generate_code(cgen, parser, it.pos), "while calling args");
+                arg = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "while calling args", PAR_FPOS(parser, it.pos));
 
             if(is_base_lib && arg_types[i]==cgen->i64) {
                 arg = LLVMBuildSExt(cgen->IRBuilder, arg, cgen->i64, "Sext");
