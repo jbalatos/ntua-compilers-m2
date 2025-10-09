@@ -223,7 +223,7 @@ cg_get_symbol (cgen_t *cgen, uint16_t name)
         }
 	if(idx == -1) return (cgen_var_t){0};
 
-    par_frame = _cgen_get_frame_ptr(cgen, depth);
+    par_frame = try_typed(_cgen_get_frame_ptr(cgen, depth), cgen_var_t, "Error while trying to find frame pointer");
 
     ret.alloca = LLVMBuildStructGEP2(
         cgen->IRBuilder, par_frame.frame_type,
@@ -238,7 +238,7 @@ cg_get_func (cgen_t *cgen, uint16_t name) {
     cg_func_call_t ret;
     cgen_func_t ret_func;
     uint16_t depth = 0;
-    LLVMValueRef par_frame;
+    cgen_typed_frame_t par_frame;
 
     ptrdiff_t idx;
     cg_fscope_t *u;
@@ -264,8 +264,8 @@ cg_get_func (cgen_t *cgen, uint16_t name) {
     }
 	if(idx == -1) return (cg_func_call_t){0};
 
-    par_frame = _cgen_get_frame_ptr(cgen, depth-1).frame;
-    ret.frame_ptr = par_frame; ret.func = ret_func;
+    par_frame = try_typed(_cgen_get_frame_ptr(cgen, depth-1), cg_func_call_t, "Error while getting frame ptr");
+    ret.frame_ptr = par_frame.frame; ret.func = ret_func;
 
     return(ret);
 }
