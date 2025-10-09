@@ -516,7 +516,7 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 	ast_node_t node = par_get_node(this, pos);
 	ast_node_it lhs = ast_get_child(this, pos),
 		    rhs = ast_next_child(lhs);
-	st_type_t ltype, rtype;
+	st_type_t ltype, rtype, arr_type;
 
 	switch(node.type) {
 
@@ -531,11 +531,19 @@ sem_eval_expr (const parser_t *this, sym_table_t *st, ast_node_pos pos)
 				PAR_FSTR "subscript operator must have at least 1 dimension",
 				PAR_FPOS(this, *lhs.node));
 
-		st_type_t arr_type = try(st_get_symbol(st, node.name),
+		arr_type = try(st_get_symbol(st, node.name),
 				PAR_FSTR "array name '%.*s' doesn't exist in current scope",
 				PAR_FPOS(this, node),
 				UNSLICE(par_get_name(this, node)));
+		goto check_subscripts;
 
+	case AST_STRING_AT:
+		throw_if(!ast_is_child(lhs), st_type_t,
+				PAR_FSTR "subscript operator must have at least 1 dimension",
+				PAR_FPOS(this, *lhs.node));
+
+		arr_type = DTYPE_INLINE(DTYPE_ARRAY | DTYPE_BYTE);
+check_subscripts:
 		for (; ast_is_child(lhs); lhs = ast_next_child(lhs)) {
 			rtype = try(sem_eval_expr(this, st, lhs.pos),
 					PAR_FSTR, PAR_FPOS(this, node));
