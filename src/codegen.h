@@ -133,7 +133,7 @@ extern LLVMValueRef c64(int64_t i);
 extern cgen_t cgen_create(const parser_t * parser, int opt_level);
 extern void cgen_destroy(cgen_t *cgen);
 
-extern void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, enum compiler_options flg, const char *fname);
+extern bool cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, enum compiler_options flg, const char *fname);
 extern LLVMValueRef _cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos);
 
 extern cgen_var_t _cgen_get_var_types(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, bool is_arg);
@@ -557,7 +557,7 @@ void cgen_destroy(cgen_t *cgen) {
     LLVMContextDispose(cgen->Context);  
 }
 
-void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, enum compiler_options flg, const char *fname) {
+bool cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, enum compiler_options flg, const char *fname) {
     log_c("BEGIN CODEGEN");
 
     log_c("Type of root node: %s", ast_get_type_str(node_at(parser, pos)));
@@ -589,7 +589,7 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, 
     cgen->curr_frame = frame;
     cgen->curr_func = 0;
 
-    _cgen_generate_code(cgen, parser, pos);
+    try_typed(_cgen_generate_code(cgen, parser, pos), bool, "Error starting to generate code");
 
     log_c("Finalizing main function");
 
@@ -661,6 +661,7 @@ void cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, 
         fwrite(LLVMGetBufferStart(mem_buf), 1, LLVMGetBufferSize(mem_buf), stdout);
         LLVMDisposeMemoryBuffer(mem_buf);
     }
+    return 0;
 }
 
 LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *parser, Unused ast_node_pos pos){
@@ -699,18 +700,18 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         return c8(node.pl_data.ch);
     break; case AST_STRING:
         log_c("Generating string");
-        const char * new_str = processEscapeSequences(par_get_text(parser, node.pl_data.str), NULL);
+        const char * new_str = try_typed(processEscapeSequences(par_get_text(parser, node.pl_data.str), NULL), LLVMValueRef, PAR_FSTR "Error processing string", PAR_FPOS(parser, pos));
         lhs = LLVMBuildGlobalStringPtr(cgen->IRBuilder, new_str, "str");
         LLVMSetAlignment(lhs, 16);
         arr_free(new_str);
         return lhs;
     break; case AST_NAME: 
         log_c("Generating name %.*s", UNSLICE(par_get_name(parser, node)));
-        return _cgen_get_var_value(cgen, parser, pos, false);
+        return try(_cgen_get_var_value(cgen, parser, pos, false), PAR_FSTR "Error getting name value", PAR_FPOS(parser, pos));
     /*expressions*/
     break; case AST_PLUS:
         log_c("Generating plus");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
         if(ast_is_child(it)) {
             rhs = _cgen_generate_code(cgen, parser, it.pos);
@@ -720,60 +721,59 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         }
     break; case AST_MINUS:
         log_c("Generating minus");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
         if(ast_is_child(it)) {
-            rhs = _cgen_generate_code(cgen, parser, it.pos);
+            rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
             return LLVMBuildSub(cgen->IRBuilder, lhs, rhs, "subtmp");
         } else {
             return LLVMBuildNeg(cgen->IRBuilder, lhs, "negtmp");
         }
     break; case AST_MULT:
         log_c("Generating mult");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         return LLVMBuildMul(cgen->IRBuilder, lhs, rhs, "multmp");
     break; case AST_DIV:
         log_c("Generating div");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         if(LLVMGetIntTypeWidth(LLVMTypeOf(lhs)) == 8) return LLVMBuildUDiv(cgen->IRBuilder, lhs, rhs, "divtmp");
         return LLVMBuildSDiv(cgen->IRBuilder, lhs, rhs, "divtmp");
     break; case AST_MOD:
         log_c("Generating mod");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         if(LLVMGetIntTypeWidth(LLVMTypeOf(lhs)) == 8) return LLVMBuildURem(cgen->IRBuilder, lhs, rhs, "modtmp");
         return LLVMBuildSRem(cgen->IRBuilder, lhs, rhs, "modtmp");
     break; case AST_BIT_AND:
         log_c("Generating bitwise and");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         lhs = LLVMBuildZExt(cgen->IRBuilder, LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, lhs, c8(0), "make_bool"), cgen->i8, "cast_bool");
         rhs = LLVMBuildZExt(cgen->IRBuilder, LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, rhs, c8(0), "make_bool"), cgen->i8, "cast_bool");
         return LLVMBuildAnd(cgen->IRBuilder, lhs, rhs, "andtmp");
     break; case AST_BIT_OR:
         log_c("Generating bitwise or");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         lhs = LLVMBuildZExt(cgen->IRBuilder, LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, lhs, c8(0), "make_bool"), cgen->i8, "cast_bool");
         rhs = LLVMBuildZExt(cgen->IRBuilder, LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, rhs, c8(0), "make_bool"), cgen->i8, "cast_bool");
         return LLVMBuildOr(cgen->IRBuilder, lhs, rhs, "ortmp");
     break; case AST_BIT_NOT:
         log_c("Generating bitwise not");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         lhs = LLVMBuildZExt(cgen->IRBuilder, LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, lhs, c8(0), "make_bool"), cgen->i8, "cast_bool");
         return LLVMBuildNot(cgen->IRBuilder, lhs, "nottmp");
     break; case AST_BOOL_AND:
         {
         log_c("Generating boolean and");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         if(LLVMTypeOf(lhs)==cgen->i8) lhs = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), lhs, "bool_cond");
         LLVMBasicBlockRef s_c_and = LLVMGetInsertBlock(cgen->IRBuilder);
         LLVMBasicBlockRef bool_and = LLVMAppendBasicBlockInContext(cgen->Context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cgen->IRBuilder)), "bool_and");
@@ -784,7 +784,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         cgen->block_stack->current_block = bool_and;
 
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         if(LLVMTypeOf(rhs)==cgen->i8) rhs = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), rhs, "bool_cond");
 
         LLVMBasicBlockRef normal_and = LLVMGetInsertBlock(cgen->IRBuilder);
@@ -807,7 +807,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
     break; case AST_BOOL_OR:
         {
         log_c("Generating boolean or");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         if(LLVMTypeOf(lhs)==cgen->i8) lhs = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), lhs, "bool_cond");
         LLVMBasicBlockRef s_c_or = LLVMGetInsertBlock(cgen->IRBuilder);
         LLVMBasicBlockRef bool_or = LLVMAppendBasicBlockInContext(cgen->Context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cgen->IRBuilder)), "bool_or");
@@ -818,7 +818,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         cgen->block_stack->current_block = bool_or;
 
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         if(LLVMTypeOf(rhs)==cgen->i8) rhs = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), rhs, "bool_cond");
 
         LLVMBasicBlockRef normal_or = LLVMGetInsertBlock(cgen->IRBuilder);
@@ -841,51 +841,51 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         }
     break; case AST_BOOL_NOT:
         log_c("Generating boolean not");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         return LLVMBuildICmp(cgen->IRBuilder, LLVMIntEQ, lhs, LLVMConstInt(LLVMTypeOf(lhs), 0, false), "nottmp");
     break; case AST_CMP_EQ:
         log_c("Generating cmp eq");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         return LLVMBuildICmp(cgen->IRBuilder, LLVMIntEQ, lhs, rhs, "eqtmp");
     break; case AST_CMP_NEQ:
         log_c("Generating cmp neq");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         return LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, lhs, rhs, "neqtmp");
     break; case AST_CMP_LEQ:
         log_c("Generating cmp leq");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         if(LLVMGetIntTypeWidth(LLVMTypeOf(lhs)) == 8) return LLVMBuildICmp(cgen->IRBuilder, LLVMIntULE, lhs, rhs, "leqtmp");
         return LLVMBuildICmp(cgen->IRBuilder, LLVMIntSLE, lhs, rhs, "leqtmp");
     break; case AST_CMP_LT:
         log_c("Generating cmp lt");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         if(LLVMGetIntTypeWidth(LLVMTypeOf(lhs)) == 8) return LLVMBuildICmp(cgen->IRBuilder, LLVMIntULT, lhs, rhs, "lttmp");
         return LLVMBuildICmp(cgen->IRBuilder, LLVMIntSLT, lhs, rhs, "lttmp");
     break; case AST_CMP_GEQ:
         log_c("Generating cmp geq");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         if(LLVMGetIntTypeWidth(LLVMTypeOf(lhs)) == 8) return LLVMBuildICmp(cgen->IRBuilder, LLVMIntUGE, lhs, rhs, "geqtmp");
         return LLVMBuildICmp(cgen->IRBuilder, LLVMIntSGE, lhs, rhs, "geqtmp");
     break; case AST_CMP_GT:
         log_c("Generating cmp gt");
-        lhs = _cgen_generate_code(cgen, parser, it.pos);
+        lhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         it = ast_next_child(it);
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error generating operand", PAR_FPOS(parser, pos));
         if(LLVMGetIntTypeWidth(LLVMTypeOf(lhs)) == 8) return LLVMBuildICmp(cgen->IRBuilder, LLVMIntUGT, lhs, rhs, "gttmp");
         return LLVMBuildICmp(cgen->IRBuilder, LLVMIntSGT, lhs, rhs, "gttmp");
-    break; case AST_ARRAY_AT:
+    break; case AST_ARRAY_AT: case AST_STRING_AT:
         log_c("Generating array at");
-        return _cgen_get_var_value(cgen, parser, pos, false);
+        return try(_cgen_get_var_value(cgen, parser, pos, false), PAR_FSTR "Error while getting array at", PAR_FPOS(parser, pos));
     break; case AST_FUNC_CALL: case AST_PROC_CALL:
         {
         log_c("Generating function/procedure call");
@@ -965,7 +965,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         log_c("getting arguments of function");
         for (; POS_CMP(it.pos, par_func_locals(parser, pos)) < 0;
 				it = ast_next_child(it)) {
-                    cgen_var_t arg = _cgen_get_var_types(cgen, parser, it.pos, true);
+                    cgen_var_t arg = try_typed(_cgen_get_var_types(cgen, parser, it.pos, true), LLVMValueRef, PAR_FSTR "Error geint arg types", PAR_FPOS(parser, it.pos));
 			        arr_push(arg_types, arg.type);
                     arr_push(locals_types, arg.type);
         } 
@@ -1012,7 +1012,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         for (; POS_CMP(it.pos, par_func_body(parser, pos)) < 0;
 				it = ast_next_child(it)) {
                     if(it.node->type != AST_ARRAY && it.node->type != AST_INT && it.node->type != AST_BYTE) continue;
-                    cgen_var_t var = _cgen_get_var_types(cgen, parser, it.pos, false);
+                    cgen_var_t var = try_typed(_cgen_get_var_types(cgen, parser, it.pos, false), LLVMValueRef, PAR_FSTR "Error geint arg types", PAR_FPOS(parser, it.pos));
                     arr_push(locals_types, var.type);
             }
 
@@ -1054,7 +1054,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
 				it = ast_next_child(it), k++) {
 			LLVMValueRef param = LLVMGetParam(test_func, k);
             cgen_var_t types = (cgen_var_t){0};
-            if(it.node->type == AST_ARRAY) types = _cgen_get_var_types(cgen, parser, it.pos, true);
+            if(it.node->type == AST_ARRAY) types = try_typed(_cgen_get_var_types(cgen, parser, it.pos, true), LLVMValueRef, PAR_FSTR "Error geint arg types", PAR_FPOS(parser, it.pos));
             types.type = arg_types[k];
             types.frame_pos = k;
             types.alloca = LLVMBuildStructGEP2(cgen->IRBuilder, frame_type, frame, k, "frame_var");
@@ -1091,7 +1091,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
                             _cgen_generate_code(cgen, parser, it.pos);
                         break; case AST_INT: case AST_BYTE: case AST_ARRAY:
                             {                
-                            cgen_var_t types = _cgen_get_var_types(cgen, parser, it.pos, false);
+                            cgen_var_t types = try_typed(_cgen_get_var_types(cgen, parser, it.pos, false), LLVMValueRef, PAR_FSTR "Error getting var types", PAR_FPOS(parser, it.pos));
                             types.alloca = LLVMBuildStructGEP2(cgen->IRBuilder, frame_type, frame, k, "local_def");
                             types.frame_pos = k;
                             throw_if(cg_put_symbol(&(cgen->cg_st), it.node->name, types), LLVMValueRef,
@@ -1106,7 +1106,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
                     }
         }
 
-        _cgen_generate_code(cgen, parser, it.pos);
+        try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error", PAR_FPOS(parser, pos));
         
         cgen->block_term = NO_TERM;
         cgen->loop_to_check = 0;
@@ -1189,7 +1189,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
 
         log_c("I am at loop_block");
 
-        LLVMValueRef ret = _cgen_generate_code(cgen, parser, it.pos);
+        LLVMValueRef ret = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error in loop body", PAR_FPOS(parser, pos));
         if(!cgen->block_term) LLVMBuildBr(cgen->IRBuilder, loop_block);
 
         LLVMPositionBuilderAtEnd(cgen->IRBuilder, after_block);
@@ -1239,17 +1239,17 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
     break; case AST_ASSIGN:
         log_c("Generating assignment");
         assert(ast_is_child(it));
-        lhs = _cgen_get_var_value(cgen, parser, it.pos, true);
+        lhs = try(_cgen_get_var_value(cgen, parser, it.pos, true), PAR_FSTR "Error in assignment lhs", PAR_FPOS(parser, it.pos));
         it = ast_next_child(it);
         assert(ast_is_child(it));
-        rhs = _cgen_generate_code(cgen, parser, it.pos);
+        rhs = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error in assignment rhs", PAR_FPOS(parser, it.pos));
         LLVMBuildStore(cgen->IRBuilder, rhs, lhs);
         return rhs;
     break; case AST_RETURN:
         {
         log_c("Generating return");
         assert(ast_is_child(it));
-        LLVMValueRef ret_val = _cgen_generate_code(cgen, parser, it.pos);
+        LLVMValueRef ret_val = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error in return type", PAR_FPOS(parser, pos));
         LLVMBuildRet(cgen->IRBuilder, ret_val);
         cgen->block_term = CG_RET;
         return ret_val;
@@ -1269,7 +1269,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         LLVMPositionBuilderAtEnd(cgen->IRBuilder, cond_block);
         cgen->block_stack->current_block = cond_block;
         
-        LLVMValueRef ret = _cgen_generate_code(cgen, parser, it.pos);
+        LLVMValueRef ret = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error in condition", PAR_FPOS(parser, pos));
         if(LLVMTypeOf(ret) == (cgen->i8)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), ret, "bool_cond");
         if(LLVMTypeOf(ret) == (cgen->i64)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c64(0), ret, "bool_cond");
         LLVMBuildCondBr(cgen->IRBuilder, ret, then_block, else_block);
@@ -1279,7 +1279,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
 
         LLVMPositionBuilderAtEnd(cgen->IRBuilder, then_block);
         cgen->block_stack->current_block = then_block;
-        _cgen_generate_code(cgen, parser, it.pos);
+        try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error in then block", PAR_FPOS(parser, it.pos));
         
         if(!cgen->block_term) {
             LLVMBuildBr(cgen->IRBuilder, after_block);
@@ -1293,7 +1293,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
         cgen->block_stack->current_block = else_block;
         for (; ast_is_child(it); it = ast_next_child(it)) {
 			if (ast_is_child(ast_next_child(it))) {
-				ret = _cgen_generate_code(cgen, parser, it.pos);
+				ret = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error in condition", PAR_FPOS(parser, it.pos));
                 if(LLVMTypeOf(ret) == (cgen->i8)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c8(0), ret, "bool_cond");
                 if(LLVMTypeOf(ret) == (cgen->i64)) ret = LLVMBuildICmp(cgen->IRBuilder, LLVMIntNE, c64(0), ret, "bool_cond");
                 then_block = LLVMAppendBasicBlockInContext(cgen->Context, func, "then");
@@ -1303,7 +1303,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
 
                 LLVMPositionBuilderAtEnd(cgen->IRBuilder, then_block);
                 cgen->block_stack->current_block = then_block;
-                _cgen_generate_code(cgen, parser, it.pos);
+                try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error in then block", PAR_FPOS(parser, it.pos));
                 if(!cgen->block_term) {
                     LLVMBuildBr(cgen->IRBuilder, after_block);
                 } else{
@@ -1315,7 +1315,7 @@ LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *par
                 cgen->block_stack->current_block = else_block;
 
 			} else {
-				_cgen_generate_code(cgen, parser, it.pos);
+                try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error in else block", PAR_FPOS(parser, it.pos));
                 if(!cgen->block_term) {
                     LLVMBuildBr(cgen->IRBuilder, after_block);
                 } else{
@@ -1349,9 +1349,9 @@ cgen_var_t _cgen_get_var_types(cgen_t *cgen, const parser_t *parser, ast_node_po
             log_c("Getting array type");
             dtype_t type = par_get_type(parser, node.var_data.array);
             if (is_arg) {
-                types = _cgen_get_array_type(cgen, parser, node, type, 0);
+                types = try(_cgen_get_array_type(cgen, parser, node, type, 0), PAR_FSTR "Error in array at type", PAR_FPOS(parser, pos));
             } else {
-                types = _cgen_get_array_type(cgen, parser, node, type, 1);
+                types = try(_cgen_get_array_type(cgen, parser, node, type, 1), PAR_FSTR "Error in array at type", PAR_FPOS(parser, pos));
                 types.type = LLVMArrayType(types.type, type.array_length);
                 types.ptr_type = types.type;
             }
@@ -1376,7 +1376,7 @@ cgen_var_t _cgen_get_array_type(cgen_t *cgen, const parser_t *parser, ast_node_t
     cgen_var_t types = (cgen_var_t){0};
 
     if(POS_DIFF(node.var_data.array, i) < type.length) {
-        types = _cgen_get_array_type(cgen, parser, node, type, dim + 1);
+        types = try(_cgen_get_array_type(cgen, parser, node, type, dim+1), PAR_FSTR "Error in array at type", PAR_FPOS(parser, node));
         if (dim == 0) {
             types.ptr_type = types.type;
             types.type = LLVMPointerType(types.type, 0);
@@ -1406,27 +1406,38 @@ LLVMValueRef _cgen_get_var_value(cgen_t *cgen, const parser_t *parser, ast_node_
     ast_node_t node = node_at(parser, pos);
     LLVMValueRef ptr;
     LLVMTypeRef var_type;
+    if(node.type != AST_ARRAY_AT && node.type != AST_NAME) {
+        if(node.type != AST_STRING && node.type != AST_STRING_AT) throw(LLVMValueRef, PAR_FSTR "Invalid type of var", PAR_FPOS(parser, pos));
+        const char * new_str = try_typed(processEscapeSequences(par_get_text(parser, node.pl_data.str), NULL), LLVMValueRef, PAR_FSTR "Error processing string", PAR_FPOS(parser, pos));
+        ptr = LLVMBuildGlobalStringPtr(cgen->IRBuilder, new_str, "str");
+        LLVMSetAlignment(ptr, 16);
+        var_type = LLVMPointerType(cgen->i8, 0);
+        arr_free(new_str);
+
+        if(node.type == AST_STRING_AT) {
+            if(is_lvalue) throw(LLVMValueRef, PAR_FSTR "Invalid l_value", PAR_FPOS(parser, pos));
+            LLVMValueRef rhs = try(_cgen_generate_code(cgen, parser, ast_get_child(parser, pos).pos), PAR_FSTR "Error while getting string at index", PAR_FPOS(parser, pos));
+            LLVMValueRef indices[1] = {rhs}; 
+
+            ptr = LLVMBuildInBoundsGEP2(cgen->IRBuilder, cgen->i8, ptr, indices, 1, "str_ptr");
+            return LLVMBuildLoad2(cgen->IRBuilder, cgen->i8, ptr, "string_at");
+        }
+        return ptr;
+    }
+
     cgen_var_t var = cg_get_symbol(cgen, node.name);
     log_c("I get %d bits", LLVMGetIntTypeWidth(var.type));
 
     switch(node.type) {
         break; case AST_ARRAY_AT:
             {
-            ptr = _cgen_get_array_at_ptr(cgen, parser, pos);
+            ptr = try(_cgen_get_array_at_ptr(cgen, parser, pos), PAR_FSTR "Error at array_at_ptr", PAR_FPOS(parser, pos));
             var_type = var.element_type;
             }
         break; case AST_NAME:
             {
             ptr = var.alloca;
             var_type = var.type; 
-            }
-        break; case AST_STRING: 
-            {
-            const char * new_str = processEscapeSequences(par_get_text(parser, node.pl_data.str), NULL);
-            ptr = LLVMBuildGlobalStringPtr(cgen->IRBuilder, new_str, "str");
-            LLVMSetAlignment(ptr, 16);
-            var_type = LLVMPointerType(cgen->i8, 0);
-            arr_free(new_str);
             }
         break; default:
             throw(LLVMValueRef, PAR_FSTR "Invalid node for variable", PAR_FPOS(parser, node));
@@ -1453,7 +1464,7 @@ LLVMValueRef _cgen_get_array_at_ptr(Unused cgen_t *cgen, Unused const parser_t *
     array = cg_get_symbol(cgen, node.name);  
     
     if(array.is_ref) arr_ptr = LLVMBuildLoad2(cgen->IRBuilder, array.type, array.alloca, "arr_ptr_start");
-    else arr_ptr = array. alloca;
+    else arr_ptr = array.alloca;
     
     arr_init(indices);
 
@@ -1461,7 +1472,7 @@ LLVMValueRef _cgen_get_array_at_ptr(Unused cgen_t *cgen, Unused const parser_t *
     else if(LLVMGetTypeKind(array.type) != LLVMPointerTypeKind) throw(LLVMValueRef, "Not correct pointer type at array");
 
     for (; ast_is_child(it); it = ast_next_child(it)) {
-			index = _cgen_generate_code(cgen, parser, it.pos);
+			index = try(_cgen_generate_code(cgen, parser, it.pos), PAR_FSTR "Error in generating index", PAR_FPOS(parser, pos));
             arr_push(indices, index);            
 	}
 
