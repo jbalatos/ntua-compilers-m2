@@ -147,7 +147,7 @@ int main (int argc, char *argv[argc])
 	ast_node_pos root = parse(&parser);
 	if (!POS_OK(root)) {
 		printf("\n=== Parsing Failed ===\n");
-		return 1;
+		return EXIT_FAILURE;
 	}
 
 	if (args.debug & DBG_AST)        debug_ast(&parser, root);
@@ -156,11 +156,14 @@ int main (int argc, char *argv[argc])
 
 	if (!sem_check(&parser, root)) {
 		printf("\n=== Semantic Check Failed ===\n");
-		return 1;
+		return EXIT_FAILURE;
 	}
 
 	cgen_t CGEN_CLEANUP cgen = cgen_create(&parser, 0);
-	cgen_generate_code(&cgen, &parser, root, args.flg, args.input);
+	if (!cgen_generate_code(&cgen, &parser, root, args.flg, args.input)) {
+		printf("\n=== Code generation failed ===\n");
+		return EXIT_FAILURE;
+	}
 
 	if (args.flg == OPT_EXEC) {
 		char *cmd[] = {

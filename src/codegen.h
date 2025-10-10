@@ -661,7 +661,7 @@ bool cgen_generate_code(cgen_t *cgen, const parser_t *parser, ast_node_pos pos, 
         fwrite(LLVMGetBufferStart(mem_buf), 1, LLVMGetBufferSize(mem_buf), stdout);
         LLVMDisposeMemoryBuffer(mem_buf);
     }
-    return 0;
+    return true;
 }
 
 LLVMValueRef _cgen_generate_code(Unused cgen_t *cgen, Unused const parser_t *parser, Unused ast_node_pos pos){
